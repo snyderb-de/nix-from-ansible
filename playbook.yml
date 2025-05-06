@@ -1,0 +1,46 @@
+# playbook.yml
+- name: Bootstrap Nix with Ansible
+  hosts: localhost
+  gather_facts: yes
+  become: false
+
+  tasks:
+    - name: Detect OS type
+      set_fact:
+        is_macos: "{{ ansible_facts['system'] == 'Darwin' }}"
+        is_linux: "{{ ansible_facts['system'] == 'Linux' }}"
+
+    - name: Ensure ~/.zshrc exists (macOS only)
+      when: is_macos
+      file:
+        path: "{{ ansible_env.HOME }}/.zshrc"
+        state: touch
+        mode: '0644'
+
+    - name: Ensure ~/.config directory exists (macOS only)
+      when: is_macos
+      file:
+        path: "{{ ansible_env.HOME }}/.config"
+        state: directory
+        mode: '0755'
+
+    - name: Install Nix (macOS)
+      when: is_macos
+      shell: |
+        sh <(curl -L https://nixos.org/nix/install) --daemon
+      args:
+        executable: /bin/zsh
+
+    - name: Install Nix (Linux)
+      when: is_linux
+      shell: |
+        sh <(curl -L https://nixos.org/nix/install) --daemon
+      args:
+        executable: /bin/bash
+
+    - name: Clone Nix config repo (macOS only)
+      when: is_macos
+      git:
+        repo: "git@github.com:your-username/your-macos-nix-config.git"
+        dest: "{{ ansible_env.HOME }}/nix-config"
+        version: main
