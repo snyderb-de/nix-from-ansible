@@ -11,41 +11,24 @@
 
 ---
 
-# Nix Setup via Ansible
+# Description
 
 This repository bootstraps a system to install [Nix](https://nixos.org/) package manager on **macOS** or **Linux** using Ansible.
 
 It automatically:
 - Detects the operating system (macOS or Linux)
-- Creates `.zshrc` and `.config/` if needed (macOS only)
-- Installs Nix with the multi-user (daemon) installation method
-- Clones a predefined `nix-config` repository on macOS
+- Ensures `zsh` is installed and set as default shell (on Linux)
+- Creates `.zshrc` and `.config/` if missing
+- Installs Nix if not already installed
+- Clones and updates the correct `nix-config` repository based on OS
 
 ---
 
 # Prerequisites
 
-Before running the playbook, make sure the following are installed:
+You need the following installed first:
 
-- **Homebrew** (recommended)
-- **Git**
-- **Ansible**
-
-## 1. Install Homebrew (Recommended for macOS and Linux)
-
-Homebrew simplifies installing Git, Ansible, and other tools.
-
-### Check if Homebrew is already installed:
-
-```bash
-brew --version
-```
-
-If you see a version like `Homebrew 3.x.x`, it's already installed.
-
-### To install Homebrew:
-
-Run this command (works on macOS and Linux):
+## 1. Install Homebrew (macOS and Linux)
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
@@ -53,20 +36,14 @@ Run this command (works on macOS and Linux):
 
 After installation:
 
-#### On macOS:
-
-No further steps needed.
-
-#### On Linux:
-
-You must add Homebrew to your shell environment:
+- On Linux, add Brew to your shell:
 
 ```bash
 echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' >> ~/.bashrc
 source ~/.bashrc
 ```
 
-Or for Zsh:
+or if you use Zsh:
 
 ```bash
 echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' >> ~/.zshrc
@@ -77,122 +54,77 @@ source ~/.zshrc
 
 ## 2. Install Git
 
-### Check if Git is already installed:
+Check if installed:
 
 ```bash
 git --version
 ```
 
-If you see output like `git version 2.x.x`, Git is installed.
-
-### If Git is missing:
-
-#### macOS (using Homebrew):
+If not:
 
 ```bash
-brew install git
-```
-
-#### Linux (Ubuntu/Debian):
-
-```bash
-sudo apt update
-sudo apt install git
-```
-
-#### Linux (Fedora/RHEL):
-
-```bash
-sudo dnf install git
+brew install git  # macOS or Linux with Homebrew
+sudo apt install git  # Ubuntu/Debian
+sudo dnf install git  # Fedora/RHEL
 ```
 
 ---
 
 ## 3. Install Ansible
 
-After Git and Homebrew are ready:
-
-### Install Ansible via Homebrew (macOS or Linux):
-
 ```bash
-brew install ansible
+brew install ansible  # macOS/Linux via Homebrew
+sudo apt install ansible  # Ubuntu/Debian
+sudo dnf install ansible  # Fedora/RHEL
 ```
 
-### Or install Ansible via your system package manager:
-
-#### Ubuntu/Debian:
-
-```bash
-sudo apt update
-sudo apt install ansible
-```
-
-#### Fedora/RHEL:
-
-```bash
-sudo dnf install ansible
-```
-
-### Verify Ansible installation:
+Check:
 
 ```bash
 ansible --version
 ```
 
-You should see output like `ansible [core 2.x.x]`.
-
 ---
 
-# Usage
+# Inventory file
 
-Once Git, Homebrew, and Ansible are installed:
+The `inventory` file defines:
 
-### 1. Clone this repository:
-
-```bash
-git clone git@github.com:your-username/nix-setup-ansible.git
-cd nix-setup-ansible
+```ini
+localhost ansible_connection=local nix_config_repo_macos=git@github.com:your-username/your-macos-nix-config.git nix_config_repo_linux=git@github.com:your-username/your-linux-nix-config.git
 ```
 
-(Replace `your-username` with your GitHub username.)
+Update it with your real GitHub repositories.
 
 ---
 
-### 2. Run the Ansible playbook:
+# Running the playbook
+
+After installing prerequisites and cloning this repo:
 
 ```bash
 ansible-playbook -i inventory playbook.yml
 ```
 
-- `-i inventory` specifies the provided inventory file.
-- `playbook.yml` runs the OS detection, Nix installation, and config steps.
-
 ---
 
-# Inventory File
+# Behavior Overview
 
-The provided `inventory` file looks like this:
-
-```text
-localhost ansible_connection=local
-```
-
-This tells Ansible to target your **local machine** — no remote server is needed.
-
----
-
-# Future Plans
-
-- Add Linux-specific `nix-config` repository setup.
-- Install and configure [Home Manager](https://nix-community.github.io/home-manager/).
-- Make the Nix installation idempotent (check if Nix is already installed).
+| What                   | macOS | Linux |
+|:------------------------|:-----:|:-----:|
+| Ensure `.zshrc` exists   | ✅    | ✅    |
+| Ensure `.config/` exists | ✅    | ✅    |
+| Install `zsh` if missing | ❌    | ✅    |
+| Set shell to `zsh`       | ❌    | ✅    |
+| Install Nix if missing   | ✅    | ✅    |
+| Clone nix-config repo    | ✅ (mac repo) | ✅ (linux repo) |
 
 ---
 
 # References
 
-- [Nix Installation Documentation](https://nixos.org/download.html)
+- [Nix Installation](https://nixos.org/download.html)
+- [Homebrew](https://brew.sh/)
 - [Ansible Documentation](https://docs.ansible.com/)
-- [Homebrew Installation Guide](https://brew.sh/)
 
 ---

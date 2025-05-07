@@ -2,7 +2,7 @@
 - name: Bootstrap Nix with Ansible
   hosts: localhost
   gather_facts: yes
-  become: false
+  become: true
 
   tasks:
     - name: Detect OS type
@@ -10,37 +10,67 @@
         is_macos: "{{ ansible_facts['system'] == 'Darwin' }}"
         is_linux: "{{ ansible_facts['system'] == 'Linux' }}"
 
-    - name: Ensure ~/.zshrc exists (macOS only)
-      when: is_macos
+    - name: Set nix-config repo URL based on OS
+      set_fact:
+        nix_config_repo_url: "{{ nix_config_repo_macos if is_macos else nix_config_repo_linux }}"
+
+    - name: Ensure ~/.zshrc exists
       file:
         path: "{{ ansible_env.HOME }}/.zshrc"
         state: touch
         mode: '0644'
 
-    - name: Ensure ~/.config directory exists (macOS only)
-      when: is_macos
+    - name: Ensure ~/.config directory exists
       file:
         path: "{{ ansible_env.HOME }}/.config"
         state: directory
         mode: '0755'
 
+    - name: Check if zsh is installed (Linux only)
+      when: is_linux
+      command: which zsh
+      register: zsh_check
+      ignore_errors: yes
+
+    - name: Install zsh if missing (Linux only)
+      when: is_linux and zsh_check.rc != 0
+      package:
+        name: zsh
+        state: present
+
+    - name: Check current user shell (Linux only)
+      when: is_linux
+      command: getent passwd {{ ansible_env.USER }}
+      register: user_info
+
+    - name: Change default shell to zsh (Linux only if needed)
+      when: is_linux and (user_info.stdout.split(':')[-1] != '/bin/zsh')
+      user:
+        name: "{{ ansible_env.USER }}"
+        shell: /bin/zsh
+
+    - name: Check if Nix is already installed
+      stat:
+        path: /nix
+      register: nix_installed
+
     - name: Install Nix (macOS)
-      when: is_macos
+      when: is_macos and not nix_installed.stat.exists
       shell: |
         sh <(curl -L https://nixos.org/nix/install) --daemon
       args:
         executable: /bin/zsh
 
     - name: Install Nix (Linux)
-      when: is_linux
+      when: is_linux and not nix_installed.stat.exists
       shell: |
         sh <(curl -L https://nixos.org/nix/install) --daemon
       args:
         executable: /bin/bash
 
-    - name: Clone Nix config repo (macOS only)
-      when: is_macos
+    - name: Ensure nix-config repo is present and up to date
       git:
-        repo: "git@github.com:your-username/your-macos-nix-config.git"
+        repo: "{{ nix_config_repo_url }}"
         dest: "{{ ansible_env.HOME }}/nix-config"
         version: main
+        update: yes

@@ -1,1 +1,6 @@
+[localhost]
 localhost ansible_connection=local
+
+[localhost:vars]
+nix_config_repo_macos=git@github.com:snyderb-de/nix-osx.git
+nix_config_repo_linux=git@github.com:snyderb-de/nix-linux.git
