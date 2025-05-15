@@ -74,3 +74,11 @@
         dest: "{{ ansible_env.HOME }}/nix-config"
         version: main
         update: yes
+
+    - name: Install Raycast via Homebrew Cask (macOS only)
+      when: is_macos
+      community.general.homebrew:
+        name: raycast
+        state: present
+        install_options: cask
+
