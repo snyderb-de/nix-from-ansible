@@ -3,14 +3,14 @@
 > **Quickstart:**  
 > Use one of the bootstrap scripts to prepare your system and run the playbook:
 
-macOS:
+**macOS:**
 ```bash
 curl -O https://raw.githubusercontent.com/your-username/nix-setup-ansible/main/bootstrap-macos.sh
 chmod +x bootstrap-macos.sh
 ./bootstrap-macos.sh https://github.com/your-username/nix-setup-ansible.git
 ```
 
-Linux:
+**Linux / NixOS:**
 ```bash
 curl -O https://raw.githubusercontent.com/your-username/nix-setup-ansible/main/bootstrap-linux.sh
 chmod +x bootstrap-linux.sh
@@ -24,9 +24,9 @@ chmod +x bootstrap-linux.sh
 This repository bootstraps a system to install the [Nix](https://nixos.org/) package manager on **macOS** or **Linux** using Ansible.
 
 It automatically:
-- Detects the operating system (macOS or Linux)
+- Detects the operating system (macOS, Linux, or NixOS)
 - Installs Ansible (via Homebrew or OS package manager)
-- Installs required Ansible collections (e.g., `community.general`)
+- Installs required Ansible collections (`community.general`)
 - Ensures `.zshrc` and `.config/` exist
 - Installs `zsh` (on Linux) and sets it as the default shell
 - Installs Nix (if missing)
@@ -51,7 +51,7 @@ Update it with the appropriate URLs for your Nix configurations.
 
 You can use one of the following scripts depending on your OS. Each script:
 
-- Installs required dependencies (Git, Ansible)
+- Installs required dependencies (Git, Ansible, Curl)
 - Installs the `community.general` Ansible collection
 - Clones the setup repository
 - Runs the Ansible playbook
@@ -59,11 +59,36 @@ You can use one of the following scripts depending on your OS. Each script:
 
 ### `bootstrap-macos.sh`
 
-For macOS. Installs Homebrew, Ansible, and Raycast.
+For macOS. It:
+- Installs Xcode Command Line Tools (if missing)
+- Installs Homebrew
+- Installs Git, Curl, Ansible
+- Installs Raycast (via Homebrew Cask)
 
 ### `bootstrap-linux.sh`
 
-For Linux. Detects package manager (APT, DNF, Pacman, Zypper) and installs Ansible appropriately.
+For Linux:
+- Detects the system package manager (APT, DNF, Pacman, Zypper)
+- Installs Ansible, Git, Curl via the appropriate package manager
+
+For **NixOS**:
+- Skips system installs
+- Prompts the user to add the following to `/etc/nixos/configuration.nix`:
+
+```nix
+environment.systemPackages = with pkgs; [
+  git
+  curl
+  ansible
+];
+```
+
+Then run:
+```bash
+sudo nixos-rebuild switch
+```
+
+After that, re-run the script to continue.
 
 ---
 
@@ -82,15 +107,17 @@ ansible-playbook -i inventory playbook.yml
 
 # Behavior Overview
 
-| Feature                        | macOS | Linux |
-|-------------------------------|:-----:|:-----:|
-| Create `.zshrc`               | ✅    | ✅    |
-| Create `.config/`             | ✅    | ✅    |
-| Install `zsh` if missing      | ❌    | ✅    |
-| Set default shell to `zsh`    | ❌    | ✅    |
-| Install Nix if missing        | ✅    | ✅    |
-| Clone Nix config repo         | ✅    | ✅    |
-| Install Raycast via Homebrew  | ✅    | ❌    |
+| Feature                        | macOS | Linux | NixOS |
+|-------------------------------|:-----:|:-----:|:-----:|
+| Create `.zshrc`               | ✅    | ✅    | ✅    |
+| Create `.config/`             | ✅    | ✅    | ✅    |
+| Install `zsh` if missing      | ❌    | ✅    | ✅    |
+| Set default shell to `zsh`    | ❌    | ✅    | ✅    |
+| Install Nix if missing        | ✅    | ✅    | ✅    |
+| Clone Nix config repo         | ✅    | ✅    | ✅    |
+| Install Raycast via Homebrew  | ✅    | ❌    | ❌    |
+| Install Git, Ansible, Curl    | ✅    | ✅    | ❌ (manual in config) |
+| Install Command Line Tools    | ✅    | ❌    | ❌    |
 
 ---
 
@@ -112,3 +139,4 @@ This helps with debugging or reviewing the full install process.
 - [Homebrew](https://brew.sh/)
 - [Ansible Documentation](https://docs.ansible.com/)
 - [Raycast](https://www.raycast.com/)
+- [Xcode CLI Tools](https://developer.apple.com/xcode/resources/)
