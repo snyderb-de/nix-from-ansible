@@ -67,7 +67,8 @@ fi
 
 # Step 6: Run the Ansible playbook
 echo ">>> Running Ansible playbook..."
-ansible-playbook -i inventory playbook.yml
+ansible-playbook -i inventory playbook.yml --ask-become-pass
+
 
 # Mark bootstrap as completed
 touch "$HOME/.bootstrap_complete"
