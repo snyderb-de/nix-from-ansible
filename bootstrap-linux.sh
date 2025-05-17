@@ -59,6 +59,6 @@ fi
 
 # Step 4: Run playbook
 echo ">>> Running Ansible playbook..."
-ansible-playbook -i inventory playbook.yml
+ansible-playbook -i inventory playbook.yml --ask-become-pass
 
 echo "✅ Done. Output logged to $LOGFILE"
