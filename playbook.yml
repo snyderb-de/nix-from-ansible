@@ -1,7 +1,7 @@
 # playbook.yml
 - name: Bootstrap Nix with Ansible
   hosts: localhost
-  gather_facts: yes
+  gather_facts: true
   become: true
 
   tasks:
@@ -30,7 +30,7 @@
       when: is_linux
       command: which zsh
       register: zsh_check
-      ignore_errors: yes
+      ignore_errors: true
 
     - name: Install zsh if missing (Linux only)
       when: is_linux and zsh_check.rc != 0
