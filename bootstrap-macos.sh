@@ -14,6 +14,12 @@ if [[ -z "$REPO_URL" ]]; then
   exit 1
 fi
 
+# Exit if bootstrap has already been completed
+if [[ -f "$HOME/.bootstrap_complete" ]]; then
+  echo "🛑 Bootstrap already completed. Exiting."
+  exit 0
+fi
+
 exec > >(tee -a "$LOGFILE") 2>&1
 
 # Step 0: Ensure Xcode Command Line Tools are installed
@@ -62,5 +68,8 @@ fi
 # Step 6: Run the Ansible playbook
 echo ">>> Running Ansible playbook..."
 ansible-playbook -i inventory playbook.yml
+
+# Mark bootstrap as completed
+touch "$HOME/.bootstrap_complete"
 
 echo "✅ Done. Output logged to $LOGFILE"
