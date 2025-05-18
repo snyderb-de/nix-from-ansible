@@ -92,3 +92,24 @@
         state: present
         install_options: cask
 
+    - name: Home Manager setup
+      block:
+        - name: Check if home-manager is already initialized
+          stat:
+            path: "{{ ansible_env.HOME }}/.config/home-manager"
+          register: hm_initialized
+
+        - name: Initialize Home Manager with flake
+          when: not hm_initialized.stat.exists
+          shell: |
+            nix run home-manager/master -- init --switch --flake ~/nix-config#{{ ansible_env.USER }}@{{ ansible_hostname }}
+          args:
+            executable: /bin/zsh
+          environment:
+            NIXPKGS_ALLOW_UNFREE: "1"
+
+        - name: Apply Home Manager config
+          shell: |
+            home-manager switch --flake ~/nix-config#{{ ansible_env.USER }}@{{ ansible_hostname }}
+          args:
+            executable: /bin/zsh
