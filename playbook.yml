@@ -1,60 +1,68 @@
 # playbook.yml
-- name: Bootstrap Nix with Ansible
+- name: 🚀 Bootstrap Nix with Ansible
   hosts: localhost
   gather_facts: true
   become: true
 
   tasks:
-    - name: Detect OS type
+    - name: 🧠 Detect OS type
       set_fact:
         is_macos: "{{ ansible_facts['system'] == 'Darwin' }}"
         is_linux: "{{ ansible_facts['system'] == 'Linux' }}"
 
-    - name: Set nix-config repo URL based on OS
+    - name: 🔗 Set nix-config repo URL based on OS
       set_fact:
         nix_config_repo_url: "{{ nix_config_repo_macos if is_macos else nix_config_repo_linux }}"
 
-    - name: Ensure ~/.zshrc exists
+    - name: 🖥️ Show selected OS and flake path
+      debug:
+        msg: |
+          🧠 OS detected: {{ 'macOS' if is_macos else 'Linux' }}
+          🧩 Using flake: {{ nix_config_repo_url }}#{{ ansible_env.USER }}@{{ ansible_hostname }}
+
+    - name: 📄 Ensure ~/.zshrc exists
       file:
         path: "{{ ansible_env.HOME }}/.zshrc"
         state: touch
         mode: '0644'
 
-    - name: Ensure ~/.config directory exists
+    - name: 📁 Ensure ~/.config directory exists
       file:
         path: "{{ ansible_env.HOME }}/.config"
         state: directory
         mode: '0755'
 
-    - name: Check if zsh is installed (Linux only)
+    # Linux-specific zsh setup
+    - name: 🔍 Check if zsh is installed (Linux only)
       when: is_linux
       command: which zsh
       register: zsh_check
       ignore_errors: true
 
-    - name: Install zsh if missing (Linux only)
+    - name: 🧰 Install zsh if missing (Linux only)
       when: is_linux and zsh_check.rc != 0
       package:
         name: zsh
         state: present
 
-    - name: Check current user shell (Linux only)
+    - name: 🌀 Check current user shell (Linux only)
       when: is_linux
       command: getent passwd {{ ansible_env.USER }}
       register: user_info
 
-    - name: Change default shell to zsh (Linux only if needed)
+    - name: 🛠️ Change default shell to zsh (Linux only if needed)
       when: is_linux and (user_info.stdout.split(':')[-1] != '/bin/zsh')
       user:
         name: "{{ ansible_env.USER }}"
         shell: /bin/zsh
 
-    - name: Check if Nix is already installed
+    # Nix install
+    - name: 📦 Check if Nix is already installed
       stat:
         path: /nix
       register: nix_installed
 
-    - name: Install Nix (macOS)
+    - name: 🍎 Install Nix (macOS)
       when: is_macos and not nix_installed.stat.exists
       shell: |
         sh <(curl -L https://nixos.org/nix/install) --daemon --no-modify-shell
@@ -63,7 +71,7 @@
       register: nix_install_result
       failed_when: nix_install_result.rc != 0
 
-    - name: Ensure Nix is initialized in .zshrc (macOS only)
+    - name: 🧩 Initialize Nix in .zshrc (macOS only)
       when: is_macos
       lineinfile:
         path: "{{ ansible_env.HOME }}/.zshrc"
@@ -71,35 +79,38 @@
         create: yes
         insertafter: EOF
 
-    - name: Install Nix (Linux)
+    - name: 🐧 Install Nix (Linux)
       when: is_linux and not nix_installed.stat.exists
       shell: |
         sh <(curl -L https://nixos.org/nix/install) --daemon
       args:
         executable: /bin/bash
 
-    - name: Ensure nix-config repo is present and up to date
+    # Clone flake-based config
+    - name: 📥 Clone or update nix-config repo
       git:
         repo: "{{ nix_config_repo_url }}"
         dest: "{{ ansible_env.HOME }}/nix-config"
         version: main
         update: yes
 
-    - name: Install Raycast via Homebrew Cask (macOS only)
+    # Optional macOS GUI app install
+    - name: 💻 Install Raycast via Homebrew Cask (macOS only)
       when: is_macos
       community.general.homebrew:
         name: raycast
         state: present
         install_options: cask
 
-    - name: Home Manager setup
+    # Home Manager init + switch
+    - name: 🧪 Home Manager setup
       block:
-        - name: Check if home-manager is already initialized
+        - name: 📂 Check if home-manager is already initialized
           stat:
             path: "{{ ansible_env.HOME }}/.config/home-manager"
           register: hm_initialized
 
-        - name: Initialize Home Manager with flake
+        - name: 🧱 Initialize Home Manager with flake
           when: not hm_initialized.stat.exists
           shell: |
             nix run home-manager/master -- init --switch --flake ~/nix-config#{{ ansible_env.USER }}@{{ ansible_hostname }}
@@ -108,8 +119,19 @@
           environment:
             NIXPKGS_ALLOW_UNFREE: "1"
 
-        - name: Apply Home Manager config
+        - name: 🔍 Check if flake.nix exists in ~/nix-config
+          stat:
+            path: "{{ ansible_env.HOME }}/nix-config/flake.nix"
+          register: flake_exists
+
+        - name: ✅ Apply Home Manager config
+          when: flake_exists.stat.exists
           shell: |
             home-manager switch --flake ~/nix-config#{{ ansible_env.USER }}@{{ ansible_hostname }}
           args:
             executable: /bin/zsh
+
+        - name: ⚠️ Warn if flake.nix is missing
+          when: not flake_exists.stat.exists
+          debug:
+            msg: "⚠️ flake.nix not found in ~/nix-config — skipping home-manager switch."
