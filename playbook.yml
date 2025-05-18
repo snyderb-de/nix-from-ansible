@@ -95,12 +95,25 @@
         update: yes
 
     # Optional macOS GUI app install
-    - name: 💻 Install Raycast via Homebrew Cask (macOS only)
+    - name: 🔍 Check if Raycast is already installed (macOS only)
       when: is_macos
+      command: brew list --cask raycast
+      register: raycast_installed
+      ignore_errors: true
+      become: false
+
+    - name: 💻 Install Raycast via Homebrew Cask (macOS only, if not installed)
+      when: is_macos and raycast_installed.rc != 0
+      become: false
       community.general.homebrew:
         name: raycast
         state: present
         install_options: cask
+
+    - name: ✅ Raycast already installed (macOS only)
+      when: is_macos and raycast_installed.rc == 0
+      debug:
+        msg: "✅ Raycast is already installed — skipping."
 
     # Home Manager init + switch
     - name: 🧪 Home Manager setup
