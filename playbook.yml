@@ -57,9 +57,19 @@
     - name: Install Nix (macOS)
       when: is_macos and not nix_installed.stat.exists
       shell: |
-        sh <(curl -L https://nixos.org/nix/install) --daemon
+        sh <(curl -L https://nixos.org/nix/install) --daemon --no-modify-shell
       args:
         executable: /bin/zsh
+      register: nix_install_result
+      failed_when: nix_install_result.rc != 0
+
+    - name: Ensure Nix is initialized in .zshrc (macOS only)
+      when: is_macos
+      lineinfile:
+        path: "{{ ansible_env.HOME }}/.zshrc"
+        line: 'source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
+        create: yes
+        insertafter: EOF
 
     - name: Install Nix (Linux)
       when: is_linux and not nix_installed.stat.exists
