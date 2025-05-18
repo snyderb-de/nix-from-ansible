@@ -126,6 +126,7 @@
         - name: 🧱 Initialize Home Manager with flake
           when: not hm_initialized.stat.exists
           shell: |
+            . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
             nix run home-manager/master -- init --switch --flake ~/nix-config#{{ ansible_env.USER }}@{{ ansible_hostname }}
           args:
             executable: /bin/zsh
@@ -140,6 +141,7 @@
         - name: ✅ Apply Home Manager config
           when: flake_exists.stat.exists
           shell: |
+            . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
             home-manager switch --flake ~/nix-config#{{ ansible_env.USER }}@{{ ansible_hostname }}
           args:
             executable: /bin/zsh
