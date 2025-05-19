@@ -7,7 +7,8 @@ export HOMEBREW_NO_AUTO_UPDATE=1
 export HOMEBREW_NO_INSTALL_CLEANUP=1
 
 REPO_URL="$1"
-LOGFILE="$HOME/bootstrap.log"
+mkdir -p "$HOME/.config"
+LOGFILE="$HOME/.config/bootstrap.log"
 
 if [[ -z "$REPO_URL" ]]; then
   echo "📦 Usage: $0 <git-repo-url>"

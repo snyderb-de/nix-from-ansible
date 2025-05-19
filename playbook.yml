@@ -44,6 +44,13 @@
       package:
         name: zsh
         state: present
+    
+    - name: 📝 Stamp .zshrc with bootstrap date
+      lineinfile:
+        path: "{{ ansible_env.HOME }}/.zshrc"
+        line: "# bootstrapped on {{ lookup('pipe', 'date +%F') }}"
+        insertafter: BOF
+
 
     - name: 🌀 Check current user shell (Linux only)
       when: is_linux
@@ -56,16 +63,16 @@
         name: "{{ ansible_env.USER }}"
         shell: /bin/zsh
 
-    # Nix install
-    - name: 📦 Check if Nix is already installed
+    # Nix install (more robust check)
+    - name: 📦 Check if Nix environment is initialized
       stat:
-        path: /nix
-      register: nix_installed
+        path: /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+      register: nix_env_initialized
 
     - name: 🍎 Install Nix (macOS)
-      when: is_macos and not nix_installed.stat.exists
+      when: is_macos and not nix_env_initialized.stat.exists
       shell: |
-        sh <(curl -L https://nixos.org/nix/install) --daemon --no-modify-shell
+        sh <(curl -L https://nixos.org/nix/install) --daemon
       args:
         executable: /bin/zsh
       register: nix_install_result
@@ -80,11 +87,16 @@
         insertafter: EOF
 
     - name: 🐧 Install Nix (Linux)
-      when: is_linux and not nix_installed.stat.exists
+      when: is_linux and not nix_env_initialized.stat.exists
       shell: |
         sh <(curl -L https://nixos.org/nix/install) --daemon
       args:
         executable: /bin/bash
+
+    - name: ⚠️ Warn if Nix environment was not initialized
+      when: not nix_env_initialized.stat.exists
+      debug:
+        msg: "⚠️ nix-daemon.sh missing — Nix may not be fully installed."
 
     # Clone flake-based config
     - name: 📥 Clone or update nix-config repo
