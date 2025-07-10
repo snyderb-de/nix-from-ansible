@@ -71,12 +71,12 @@
         path: /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
       register: nix_env_initialized
 
-    - name: 🍎 Install Nix (macOS)
+    - name: 🍎 Install Nix (macOS with Determinate Nix Installer)
       when: is_macos and not nix_env_initialized.stat.exists
       shell: |
-        sh <(curl -L https://nixos.org/nix/install) --daemon
+        curl -fsSL https://install.determinate.systems/nix | sh -s -- install --no-confirm
       args:
-        executable: /bin/zsh
+        executable: /bin/bash
       register: nix_install_result
       failed_when: nix_install_result.rc != 0
 
@@ -88,10 +88,10 @@
         create: yes
         insertafter: EOF
 
-    - name: 🐧 Install Nix (Linux)
+    - name: 🐧 Install Nix (Linux with Determinate Nix Installer)
       when: is_linux and not nix_env_initialized.stat.exists
       shell: |
-        sh <(curl -L https://nixos.org/nix/install) --daemon
+        curl -fsSL https://install.determinate.systems/nix | sh -s -- install --no-confirm
       args:
         executable: /bin/bash
 
