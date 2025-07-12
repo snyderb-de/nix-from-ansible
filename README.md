@@ -29,7 +29,7 @@ It automatically:
 - Installs required Ansible collections (`community.general`)
 - Ensures `.zshrc` and `.config/` exist
 - Installs `zsh` (on Linux) and sets it as the default shell
-- Installs Nix (if missing)
+- Installs Nix via the [Determinate Nix Installer](https://github.com/DeterminateSystems/nix-installer) if missing
 - Clones and updates your Nix config repo (based on OS)
 - Installs Raycast (on macOS, via Homebrew Cask)
 
@@ -136,6 +136,7 @@ This helps with debugging or reviewing the full install process.
 # References
 
 - [Nix Installation](https://nixos.org/download.html)
+- [Determinate Nix Installer](https://github.com/DeterminateSystems/nix-installer)
 - [Homebrew](https://brew.sh/)
 - [Ansible Documentation](https://docs.ansible.com/)
 - [Raycast](https://www.raycast.com/)

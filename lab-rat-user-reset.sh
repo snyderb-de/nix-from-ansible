@@ -9,6 +9,21 @@ if [[ "$EUID" -ne 0 ]]; then
   exit 1
 fi
 
+# Remove any existing Nix installation
+if [ -d /nix ]; then
+  echo "🗑️ Removing existing Nix installation..."
+  if [ -x /nix/nix-installer ]; then
+    /nix/nix-installer uninstall --no-confirm || /nix/nix-installer uninstall || true
+  else
+    # Fallback manual cleanup for unknown install method
+    launchctl remove org.nixos.nix-daemon 2>/dev/null || true
+    rm -rf /nix
+    dscl . -delete /Users/nixbld 2>/dev/null || true
+    dscl . -delete /Groups/nixbld 2>/dev/null || true
+    rm -f /etc/profile.d/nix.sh /etc/paths.d/nix
+  fi
+fi
+
 USERNAME="labrat"
 FULLNAME="Lab Rat Test User"
 USER_HOME="/Users/$USERNAME"
