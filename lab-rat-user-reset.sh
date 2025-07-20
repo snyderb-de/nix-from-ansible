@@ -30,9 +30,9 @@ USER_HOME="/Users/$USERNAME"
 USER_UID=502
 
 # Prompt for password
-read -s -p "🔐 Enter password for new user '$USERNAME': " PASSWORD
+read -r -s -p "🔐 Enter password for new user '$USERNAME': " PASSWORD
 echo
-read -s -p "🔁 Confirm password: " PASSWORD_CONFIRM
+read -r -s -p "🔁 Confirm password: " PASSWORD_CONFIRM
 echo
 
 if [[ "$PASSWORD" != "$PASSWORD_CONFIRM" ]]; then
