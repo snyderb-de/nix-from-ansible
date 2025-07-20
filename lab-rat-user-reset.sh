@@ -80,5 +80,36 @@ echo "# fresh test user setup on $(date)" >> "$USER_HOME/.zshrc"
 chown -R "$USERNAME:staff" "$USER_HOME/.config"
 chown "$USERNAME:staff" "$USER_HOME/.zshrc"
 
+# Install essential tools for the lab rat user
+echo "🍺 Installing Homebrew and Ansible for user '$USERNAME'..."
+
+# Switch to the new user context for installations
+sudo -u "$USERNAME" bash << 'EOF'
+# Install Homebrew
+if ! command -v brew &> /dev/null; then
+    echo "📦 Installing Homebrew..."
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    
+    # Add Homebrew to PATH for current session
+    echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zshrc
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+else
+    echo "✅ Homebrew already installed"
+fi
+
+# Install Ansible via Homebrew
+if ! command -v ansible &> /dev/null; then
+    echo "🤖 Installing Ansible..."
+    brew install ansible
+else
+    echo "✅ Ansible already installed"
+fi
+
+# Install Ansible community collection
+echo "📚 Installing Ansible community.general collection..."
+ansible-galaxy collection install community.general --force
+EOF
+
 echo "✅ User '$USERNAME' reset complete."
 echo "ℹ️ You can now log in as '$USERNAME' with the password you provided."
+echo "🚀 Homebrew and Ansible are ready for running the playbook!"
