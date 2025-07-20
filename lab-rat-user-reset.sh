@@ -2,6 +2,18 @@
 
 set -e
 
+# Detect OS
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    IS_MACOS=true
+elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    IS_MACOS=false
+else
+    echo "❌ Unsupported OS: $OSTYPE"
+    exit 1
+fi
+
+echo "🖥️ Detected OS: $([ "$IS_MACOS" = true ] && echo "macOS" || echo "Linux")"
+
 # Require root
 if [[ "$EUID" -ne 0 ]]; then
   echo "🛑 This script must be run as root."
