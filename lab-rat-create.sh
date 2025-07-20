@@ -21,87 +21,15 @@ if [[ "$EUID" -ne 0 ]]; then
   exit 1
 fi
 
-# Remove any existing Nix installation
-if [ -d /nix ]; then
-  echo "🗑️ Removing existing Nix installation..."
-  if [ -x /nix/nix-installer ]; then
-    /nix/nix-installer uninstall --no-confirm || /nix/nix-installer uninstall || true
-  else
-    # Fallback manual cleanup for unknown install method
-    echo "🔧 Performing manual Nix cleanup..."
-    
-    # Stop and remove Nix daemon
-    launchctl remove org.nixos.nix-daemon 2>/dev/null || true
-    
-    # Remove Nix users and groups
-    dscl . -delete /Users/nixbld 2>/dev/null || true
-    dscl . -delete /Groups/nixbld 2>/dev/null || true
-    
-    # Remove individual nixbld users (there might be multiple)
-    echo "🧹 Cleaning up nixbld users..."
-    for i in {1..32}; do
-      if dscl . -read "/Users/nixbld$i" &>/dev/null; then
-        dscl . -delete "/Users/nixbld$i" 2>/dev/null || true
-      fi
-    done
-    
-    # Remove profile scripts
-    rm -f /etc/profile.d/nix.sh /etc/paths.d/nix
-    
-    # Remove /nix with special handling for macOS
-    if [ "$IS_MACOS" = true ]; then
-      # On macOS, /nix might be a volume mount point
-      diskutil unmount force /nix 2>/dev/null || true
-      # Remove the synthetic.conf entry if it exists
-      sed -i '' '/^nix/d' /etc/synthetic.conf 2>/dev/null || true
-    fi
-    
-    # Try to remove /nix directory with better error handling
-    if ! rm -rf /nix 2>/dev/null; then
-      echo "⚠️ Could not remove /nix completely. Trying alternative methods..."
-      # Use find to remove contents first
-      find /nix -mindepth 1 -delete 2>/dev/null || true
-      # Then try to remove the directory
-      rmdir /nix 2>/dev/null || true
-    fi
-  fi
-  
-  # Verify removal
-  if [ -d /nix ]; then
-    echo "⚠️ Warning: /nix directory still exists after cleanup."
-    echo "📋 This is normal on modern macOS due to System Integrity Protection."
-    echo "� The Nix volume has been unmounted, so Nix is effectively disabled."
-    echo "💡 If you want to completely remove /nix, reboot your Mac and run:"
-    echo "   sudo rm -rf /nix"
-    echo ""
-    echo "🎯 Continuing with user setup (Nix is disabled)..."
-  else
-    echo "✅ Nix installation removed successfully"
-  fi
-fi
+echo "👤 Lab Rat User Creation Script"
+echo "==============================="
 
 USERNAME="labrat"
 FULLNAME="Lab Rat Test User"
-USER_HOME="/Users/$USERNAME"
 USER_UID=502
 
-# Prompt for password
-read -r -s -p "🔐 Enter password for new user '$USERNAME': " PASSWORD
-echo
-read -r -s -p "🔁 Confirm password: " PASSWORD_CONFIRM
-echo
-
-if [[ "$PASSWORD" != "$PASSWORD_CONFIRM" ]]; then
-  echo "❌ Passwords do not match."
-  exit 1
-fi
-
-echo "🔁 Resetting user: $USERNAME"
-
-# Delete user if it exists
-echo "🔍 Checking for existing user: $USERNAME"
-
-# Check if user exists using platform-appropriate method
+# Check if user already exists
+echo "🔍 Checking if user '$USERNAME' already exists..."
 USER_EXISTS=false
 if [ "$IS_MACOS" = true ]; then
   if dscl . -read "/Users/$USERNAME" &>/dev/null; then
@@ -114,59 +42,27 @@ else
 fi
 
 if [ "$USER_EXISTS" = true ]; then
-  echo "🗑️ Deleting existing user: $USERNAME"
-  
-  if [ "$IS_MACOS" = true ]; then
-    # macOS user deletion
-    # Remove from admin group first
-    dseditgroup -o edit -d "$USERNAME" -t user admin 2>/dev/null || true
-    
-    # Delete the user record
-    dscl . -delete "/Users/$USERNAME" 2>/dev/null || true
-    
-    # Flush directory services cache
-    echo "🔄 Flushing directory services cache..."
-    dscacheutil -flushcache 2>/dev/null || true
-    killall DirectoryService 2>/dev/null || true
-    killall opendirectoryd 2>/dev/null || true
-    
-    # Wait longer for the system to process the deletion
-    sleep 5
-  else
-    # Linux user deletion
-    userdel -r "$USERNAME" 2>/dev/null || true
-  fi
-  
-  # Force remove home directory (both platforms)
-  rm -rf "$USER_HOME" 2>/dev/null || true
-  
-  echo "✅ User deletion completed"
-else
-  echo "ℹ️ No existing user found."
+  echo "❌ User '$USERNAME' already exists!"
+  echo "💡 Run the lab-rat-delete.sh script first to remove existing users"
+  exit 1
 fi
 
-# Double-check that user is really gone before creating (macOS specific issue)
-if [ "$IS_MACOS" = true ] && dscl . -read "/Users/$USERNAME" &>/dev/null; then
-  echo "❌ User still exists in directory services after deletion and cache flush."
-  echo "🔄 This is a macOS Directory Services caching issue."
-  
-  # Generate a unique username with timestamp
-  TIMESTAMP=$(date +%H%M%S)
-  ORIGINAL_USERNAME="$USERNAME"
-  USERNAME="labrat$TIMESTAMP"
+# Set platform-specific home directory
+if [ "$IS_MACOS" = true ]; then
   USER_HOME="/Users/$USERNAME"
-  
-  echo "🆔 Using alternative username: $USERNAME"
-  echo "💡 You can login with '$USERNAME' instead of '$ORIGINAL_USERNAME'"
-  
-  # Check if the timestamped username also exists (very unlikely but possible)
-  if dscl . -read "/Users/$USERNAME" &>/dev/null; then
-    echo "❌ Even the timestamped username exists. Trying with random suffix..."
-    RANDOM_SUFFIX=$(openssl rand -hex 3)
-    USERNAME="labrat$RANDOM_SUFFIX"
-    USER_HOME="/Users/$USERNAME"
-    echo "🆔 Using random username: $USERNAME"
-  fi
+else
+  USER_HOME="/home/$USERNAME"
+fi
+
+# Prompt for password
+read -r -s -p "🔐 Enter password for new user '$USERNAME': " PASSWORD
+echo
+read -r -s -p "🔁 Confirm password: " PASSWORD_CONFIRM
+echo
+
+if [[ "$PASSWORD" != "$PASSWORD_CONFIRM" ]]; then
+  echo "❌ Passwords do not match."
+  exit 1
 fi
 
 # Create the user
@@ -187,7 +83,9 @@ else
   echo "$USERNAME:$PASSWORD" | chpasswd
 fi
 
-# Ensure user is admin (cross-platform)
+echo "✅ User created successfully"
+
+# Add admin privileges
 echo "🔑 Adding admin privileges..."
 if [ "$IS_MACOS" = true ]; then
   # macOS admin setup
@@ -226,10 +124,12 @@ else
   done
 fi
 
-# Prevent setup assistant
-defaults write /Library/Preferences/com.apple.SetupAssistant DidSeeCloudSetup -bool TRUE
-defaults write /Library/Preferences/com.apple.SetupAssistant DidSeeSetup -bool TRUE
-defaults write /Library/Preferences/com.apple.SetupAssistant DidSeePrivacy -bool TRUE
+if [ "$IS_MACOS" = true ]; then
+  # Prevent setup assistant
+  defaults write /Library/Preferences/com.apple.SetupAssistant DidSeeCloudSetup -bool TRUE
+  defaults write /Library/Preferences/com.apple.SetupAssistant DidSeeSetup -bool TRUE
+  defaults write /Library/Preferences/com.apple.SetupAssistant DidSeePrivacy -bool TRUE
+fi
 
 # Create default config files
 echo "📁 Creating .config and .zshrc in $USER_HOME"
@@ -302,9 +202,7 @@ ansible-galaxy collection install community.general --force
 EOF
 fi
 
-echo "✅ User '$USERNAME' reset complete."
+echo ""
+echo "✅ User '$USERNAME' created successfully!"
 echo "ℹ️ You can now log in as '$USERNAME' with the password you provided."
-if [[ "$USERNAME" != "labrat" ]]; then
-  echo "🔄 Note: Due to Directory Services caching, user was created as '$USERNAME' instead of 'labrat'"
-fi
 echo "🚀 Homebrew and Ansible are ready for running the playbook!"
