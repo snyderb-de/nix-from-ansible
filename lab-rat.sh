@@ -171,6 +171,13 @@ if [ "$USER_EXISTS" = false ]; then
 # Fresh lab rat user setup
 # Basic shell configuration
 
+# Add Homebrew to PATH (will be set up during installation)
+if [ -f /opt/homebrew/bin/brew ]; then
+  eval "$(/opt/homebrew/bin/brew shellenv)"
+elif [ -f /usr/local/bin/brew ]; then
+  eval "$(/usr/local/bin/brew shellenv)"
+fi
+
 # Add any custom configurations below this line
 
 EOF
@@ -189,21 +196,46 @@ EOF
   dry_run_msg "Installing package manager and Ansible..."
   if [ "$DRY_RUN" = false ]; then
     if [ "$IS_MACOS" = true ]; then
-      sudo -u "$USERNAME" bash << 'EOF'
+      # Install Homebrew as the new user, but from their home directory
+      echo "📦 Installing Homebrew for user $USERNAME..."
+      sudo -u "$USERNAME" -i bash << 'EOF'
+# Change to home directory to avoid permission issues
+cd ~
+
 # Install Homebrew
 if ! command -v brew &> /dev/null; then
     echo "📦 Installing Homebrew..."
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
     
-    # Add Homebrew to PATH
-    echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zshrc
-    eval "$(/opt/homebrew/bin/brew shellenv)"
+    # Add Homebrew to PATH for current session
+    if [ -f /opt/homebrew/bin/brew ]; then
+      eval "$(/opt/homebrew/bin/brew shellenv)"
+    elif [ -f /usr/local/bin/brew ]; then
+      eval "$(/usr/local/bin/brew shellenv)"
+    fi
+    
+    # Add Homebrew to shell profile
+    if [ -f /opt/homebrew/bin/brew ]; then
+      echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zshrc
+    elif [ -f /usr/local/bin/brew ]; then
+      echo 'eval "$(/usr/local/bin/brew shellenv)"' >> ~/.zshrc
+    fi
+else
+    echo "✅ Homebrew already installed"
+    # Ensure it's in PATH
+    if [ -f /opt/homebrew/bin/brew ]; then
+      eval "$(/opt/homebrew/bin/brew shellenv)"
+    elif [ -f /usr/local/bin/brew ]; then
+      eval "$(/usr/local/bin/brew shellenv)"
+    fi
 fi
 
 # Install Ansible
 if ! command -v ansible &> /dev/null; then
     echo "🤖 Installing Ansible..."
     brew install ansible
+else
+    echo "✅ Ansible already installed"
 fi
 
 # Install Ansible community collection
@@ -212,6 +244,7 @@ ansible-galaxy collection install community.general --force
 EOF
     else
       # Linux - install ansible via package manager
+      echo "📦 Installing Ansible via package manager..."
       if command -v apt &> /dev/null; then
         apt update && apt install -y ansible
       elif command -v dnf &> /dev/null; then
@@ -222,16 +255,63 @@ EOF
         zypper install -y ansible
       fi
       
-      sudo -u "$USERNAME" ansible-galaxy collection install community.general --force
+      # Install Ansible community collection as the user
+      echo "📚 Installing Ansible community.general collection..."
+      sudo -u "$USERNAME" -i ansible-galaxy collection install community.general --force
+    fi
+  fi
+
+  # Verify user creation and permissions
+  echo "🔍 Verifying user creation..."
+  if [ "$DRY_RUN" = false ]; then
+    if [ "$IS_MACOS" = true ]; then
+      if dseditgroup -o checkmember -m "$USERNAME" admin | grep -q "yes"; then
+        echo "✅ User '$USERNAME' successfully created with admin privileges"
+      else
+        echo "⚠️ Warning: User created but admin privileges may not be set correctly"
+        echo "🔧 Attempting to fix admin privileges..."
+        dseditgroup -o edit -a "$USERNAME" -t user admin 2>/dev/null || true
+      fi
+    else
+      if groups "$USERNAME" | grep -qE "(sudo|wheel)"; then
+        echo "✅ User '$USERNAME' successfully created with admin privileges"
+      else
+        echo "⚠️ Warning: User created but admin privileges may not be set correctly"
+      fi
+    fi
+    
+    # Test if user can access their home directory
+    if sudo -u "$USERNAME" -i test -w ~; then
+      echo "✅ User home directory accessible"
+    else
+      echo "⚠️ Warning: User home directory access issues"
     fi
   fi
 
   echo "✅ User '$USERNAME' created and configured successfully!"
 
 else
-  echo "✅ Found existing user '$USERNAME' - $([ "$DRY_RUN" = true ] && echo "would clean" || echo "cleaning") up installations..."
+  echo "✅ Found existing user '$USERNAME'"
   
-  # 1. Remove Nix installation
+  # Check if user has Homebrew and Ansible installed
+  USER_HAS_BREW=false
+  USER_HAS_ANSIBLE=false
+  
+  if [ "$DRY_RUN" = false ]; then
+    if sudo -u "$USERNAME" -i bash -c 'command -v brew &> /dev/null'; then
+      USER_HAS_BREW=true
+    fi
+    if sudo -u "$USERNAME" -i bash -c 'command -v ansible &> /dev/null'; then
+      USER_HAS_ANSIBLE=true
+    fi
+  fi
+  
+  if [ "$USER_HAS_BREW" = true ] && [ "$USER_HAS_ANSIBLE" = true ]; then
+    echo "🔧 User has tools installed - $([ "$DRY_RUN" = true ] && echo "would clean" || echo "cleaning") up installations..."
+    
+    # Proceed with cleanup logic (existing code)
+    
+    # 1. Remove Nix installation
   echo ""
   dry_run_msg "Removing Nix installation..."
   if [ -d /nix ]; then
@@ -312,7 +392,10 @@ else
     echo "    - ~/.config/bootstrap.log"
     echo "    - Nix entries from ~/.zshrc"
   else
-    sudo -u "$USERNAME" bash << EOF
+    sudo -u "$USERNAME" -i bash << 'EOF'
+# Change to home directory to avoid permission issues
+cd ~
+
 # Remove Nix-related directories and files
 rm -rf ~/.nix-profile ~/.nix-defexpr ~/.nix-channels ~/.config/nix ~/.cache/nix
 rm -rf ~/.local/state/nix ~/.local/share/nix
@@ -325,14 +408,14 @@ rm -f ~/.bootstrap_complete ~/.config/bootstrap.log
 
 # Clean shell configuration
 cat > ~/.zshrc << 'ZSHRC_EOF'
-# Fresh lab rat user setup - cleaned on \$(date)
+# Fresh lab rat user setup - cleaned on $(date)
 # Basic shell configuration
 
 # Add Homebrew to PATH if it exists
 if [ -f /opt/homebrew/bin/brew ]; then
-  eval "\$(/opt/homebrew/bin/brew shellenv)"
+  eval "$(/opt/homebrew/bin/brew shellenv)"
 elif [ -f /usr/local/bin/brew ]; then
-  eval "\$(/usr/local/bin/brew shellenv)"
+  eval "$(/usr/local/bin/brew shellenv)"
 fi
 
 # Add any custom configurations below this line
@@ -352,7 +435,10 @@ EOF
     read -r -p "🍺 Clean up Homebrew packages (keeps Homebrew & Ansible)? (y/N): " clean_brew
     if [[ "$clean_brew" =~ ^[Yy]$ ]]; then
       dry_run_msg "Cleaning up Homebrew packages..."
-      sudo -u "$USERNAME" bash << 'EOF'
+      sudo -u "$USERNAME" -i bash << 'EOF'
+# Change to home directory to avoid permission issues
+cd ~
+
 if command -v brew &> /dev/null; then
   # Get list of installed packages (excluding ansible)
   PACKAGES=$(brew list --formula | grep -v '^ansible$' | head -20)
@@ -385,6 +471,121 @@ EOF
 
   echo ""
   echo "✅ User '$USERNAME' $([ "$DRY_RUN" = true ] && echo "would be cleaned" || echo "cleaned") successfully!"
+
+  else
+    echo "🛠️ User exists but missing tools - $([ "$DRY_RUN" = true ] && echo "would set up" || echo "setting up") Homebrew and Ansible..."
+    
+    # First, ensure the user has admin privileges
+    echo "🔧 Verifying admin privileges for existing user..."
+    if [ "$DRY_RUN" = false ]; then
+      if [ "$IS_MACOS" = true ]; then
+        if ! dseditgroup -o checkmember -m "$USERNAME" admin | grep -q "yes"; then
+          echo "⚠️ User lacks admin privileges - adding to admin group..."
+          dseditgroup -o edit -a "$USERNAME" -t user admin
+          dseditgroup -o edit -a "$USERNAME" -t user _appserveradm 2>/dev/null || true
+          dseditgroup -o edit -a "$USERNAME" -t user _appserverusr 2>/dev/null || true
+        else
+          echo "✅ User has admin privileges"
+        fi
+        
+        # Test if user can actually sudo
+        echo "🔧 Testing sudo access..."
+        if sudo -u "$USERNAME" -i sudo -n true 2>/dev/null; then
+          echo "✅ User can use sudo without password"
+        else
+          echo "⚠️ User needs password for sudo - setting up passwordless sudo for Homebrew install..."
+          # Temporarily allow passwordless sudo for this user
+          echo "$USERNAME ALL=(ALL) NOPASSWD: ALL" > "/etc/sudoers.d/temp_$USERNAME"
+          echo "🔧 Temporary passwordless sudo enabled"
+        fi
+      fi
+    fi
+    
+    # Install package manager and Ansible for existing user
+    dry_run_msg "Installing package manager and Ansible..."
+    if [ "$DRY_RUN" = false ]; then
+      if [ "$IS_MACOS" = true ]; then
+        # Install Homebrew as the existing user
+        echo "📦 Installing Homebrew for existing user $USERNAME..."
+        sudo -u "$USERNAME" -i bash << 'EOF'
+# Change to home directory to avoid permission issues
+cd ~
+
+# Install Homebrew
+if ! command -v brew &> /dev/null; then
+    echo "📦 Installing Homebrew..."
+    
+    # Verify we can sudo (for Homebrew installation)
+    if ! sudo -n true 2>/dev/null; then
+        echo "⚠️ User needs sudo access for Homebrew installation"
+        echo "💡 Homebrew requires admin privileges to install"
+        exit 1
+    fi
+    
+    NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    
+    # Add Homebrew to PATH for current session
+    if [ -f /opt/homebrew/bin/brew ]; then
+      eval "$(/opt/homebrew/bin/brew shellenv)"
+    elif [ -f /usr/local/bin/brew ]; then
+      eval "$(/usr/local/bin/brew shellenv)"
+    fi
+    
+    # Add Homebrew to shell profile
+    if [ -f /opt/homebrew/bin/brew ]; then
+      echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zshrc
+    elif [ -f /usr/local/bin/brew ]; then
+      echo 'eval "$(/usr/local/bin/brew shellenv)"' >> ~/.zshrc
+    fi
+else
+    echo "✅ Homebrew already installed"
+    # Ensure it's in PATH
+    if [ -f /opt/homebrew/bin/brew ]; then
+      eval "$(/opt/homebrew/bin/brew shellenv)"
+    elif [ -f /usr/local/bin/brew ]; then
+      eval "$(/usr/local/bin/brew shellenv)"
+    fi
+fi
+
+# Install Ansible
+if ! command -v ansible &> /dev/null; then
+    echo "🤖 Installing Ansible..."
+    brew install ansible
+else
+    echo "✅ Ansible already installed"
+fi
+
+# Install Ansible community collection
+echo "📚 Installing Ansible community.general collection..."
+ansible-galaxy collection install community.general --force
+EOF
+      else
+        # Linux - install ansible via package manager
+        echo "📦 Installing Ansible via package manager..."
+        if command -v apt &> /dev/null; then
+          apt update && apt install -y ansible
+        elif command -v dnf &> /dev/null; then
+          dnf install -y ansible
+        elif command -v pacman &> /dev/null; then
+          pacman -Sy --noconfirm ansible
+        elif command -v zypper &> /dev/null; then
+          zypper install -y ansible
+        fi
+        
+        # Install Ansible community collection as the user
+        echo "📚 Installing Ansible community.general collection..."
+        sudo -u "$USERNAME" -i ansible-galaxy collection install community.general --force
+      fi
+    fi
+    
+    # Clean up temporary sudo rule if it was created
+    if [ -f "/etc/sudoers.d/temp_$USERNAME" ]; then
+      echo "🔧 Removing temporary sudo rule..."
+      rm -f "/etc/sudoers.d/temp_$USERNAME"
+    fi
+    
+    echo "✅ User '$USERNAME' set up with Homebrew and Ansible!"
+  fi
 fi
 
 echo ""
