@@ -69,7 +69,7 @@ log "🍺 Installing Homebrew..."
 # Backup user configuration files before modifying
 if [[ -f ~/.zprofile ]]; then
   log "📑 Backing up existing .zprofile..."
-  cp ~/.zprofile ~/.zprofile.backup.$(date +%Y%m%d%H%M%S)
+  cp ~/.zprofile ~/.zprofile.backup."$(date +%Y%m%d%H%M%S)"
 fi
 
 # Add Homebrew to shell environment
@@ -131,7 +131,7 @@ fi
 # Ask user before running the playbook
 read -p "🤔 Run the Ansible playbook now? (Y/n) " -n 1 -r
 echo
-if [[ ! $REPLY =~ ^[Yy]$ ]] && [[ ! -z $REPLY ]]; then
+if [[ ! $REPLY =~ ^[Yy]$ ]] && [[ -n $REPLY ]]; then
   log "❌ Exiting without running the playbook. You can run it manually later."
   exit 0
 fi
