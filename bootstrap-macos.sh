@@ -100,6 +100,25 @@ else
   log "✅ Lazygit already installed."
 fi
 
+# Install Lazygit if not installed
+log "🔄 Checking for Lazygit..."
+if ! brew list lazygit &>/dev/null; then
+  log "📥 Installing Lazygit..."
+  brew install lazygit
+else
+  log "✅ Lazygit already installed."
+fi
+
+# Install PowerShell if not installed
+log "🔄 Checking for PowerShell..."
+if ! brew list --cask powershell &>/dev/null; then
+  log "📥 Installing PowerShell..."
+  brew install --cask powershell
+else
+  log "✅ PowerShell already installed."
+fi
+
+
 # Check and install Ansible if needed
 log "🔄 Checking for Ansible..."
 if ! command -v ansible &>/dev/null; then
