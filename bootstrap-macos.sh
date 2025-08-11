@@ -149,13 +149,6 @@ if [[ "$SHELL_NAME" != "zsh" ]]; then
   log "⚠️ Warning: You're not using zsh (current: $SHELL_NAME). Some features may not work as expected."
 fi
 
-# Check internet connectivity before proceeding
-log "🌐 Checking internet connectivity..."
-if ! ping -c 1 github.com &>/dev/null; then
-  log "❌ No internet connection. Please connect and try again."
-  [ "$DRY_RUN" = true ] && echo "(Would exit here)" || exit 1
-fi
-
 # Ensure sufficient disk space (5GB minimum)
 log "💾 Checking available disk space..."
 if [[ $(df -k / | awk 'NR==2 {print $4}') -lt 5242880 ]]; then
