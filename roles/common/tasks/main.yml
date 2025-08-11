@@ -112,10 +112,22 @@
       {{ (error_log_buffer | default('')) }}{% if nix_install_result.rc != 0 %}\n[{{ ansible_date_time.iso8601 }}] ERROR: Nix installation failed\nReturn code: {{ nix_install_result.rc }}\nstdout: {{ nix_install_result.stdout | default('') }}\nstderr: {{ nix_install_result.stderr | default('') }}{% endif %}
   changed_when: false
 
+- name: (DRY-RUN) Nix currently absent and would be installed on real run
+  debug:
+    msg: "⚠️ Nix not present; real run would invoke installer (skip_nix_install is false)."
+  when: ansible_check_mode and not nix_env_initialized.stat.exists and not skip_nix_install|default(false)
+
+- name: (DRY-RUN) Nix absent but installation intentionally skipped
+  debug:
+    msg: "⚠️ Nix missing and skip_nix_install=true; installer suppressed."
+  when: ansible_check_mode and not nix_env_initialized.stat.exists and skip_nix_install|default(false)
+
 - name: Warn if Nix missing after attempted install
   debug:
     msg: "⚠️ nix-daemon.sh missing — Nix may not be fully installed."
-  when: (nix_install_result is defined and nix_install_result.rc != 0) or (not nix_env_initialized.stat.exists and skip_nix_install)
+  when:
+    - not ansible_check_mode
+    - (nix_install_result is defined and nix_install_result.rc != 0) or (not nix_env_initialized.stat.exists and skip_nix_install|default(false))
 
 - name: Clone or update nix-config (dry-run safe)
   git:
