@@ -173,7 +173,11 @@ fi
 # Homebrew install (only if missing)
 if ! have_cmd brew; then
   log "🍺 Homebrew not found"
-  maybe_exec "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+  if [ "$DRY_RUN" = true ]; then
+    echo "  [DRY RUN] Would download and run Homebrew installer"
+  else
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  fi
 else
   log "✅ Homebrew already installed"
 fi

@@ -1,5 +1,5 @@
 # playbook.yml
-- name: 🚀 Bootstrap Nix with Ansible
+- name: 🚀 Bootstrap Nix with Ansible (modular)
   hosts: localhost
   gather_facts: true
   gather_subset:
@@ -7,374 +7,52 @@
   become: true
 
   vars:
-    # Logging configuration - saved to external volume for cross-user access
     log_dir: "/Volumes/F9/logs"
     log_file: "{{ log_dir }}/nix-bootstrap-{{ ansible_date_time.iso8601_basic_short }}.log"
     error_log_file: "{{ log_dir }}/nix-bootstrap-errors-{{ ansible_date_time.iso8601_basic_short }}.log"
 
-  tasks:
+  pre_tasks:
     - name: 📁 Create logging directory
       file:
         path: "{{ log_dir }}"
         state: directory
-        mode: '0777'
-      become: true
-
-    - name: 📝 Initialize log files
-      copy:
-        content: |
-          =====================================
-          Nix Bootstrap Log
-          Started: {{ ansible_date_time.iso8601 }}
-          User: {{ ansible_env.USER }}
-          Host: {{ ansible_hostname }}
-          OS: {{ ansible_facts['system'] }}
-          =====================================
-          
-        dest: "{{ log_file }}"
-        mode: '0666'
-      become: true
-
-    - name: 📝 Initialize error log file
-      copy:
-        content: |
-          =====================================
-          Nix Bootstrap Error Log
-          Started: {{ ansible_date_time.iso8601 }}
-          User: {{ ansible_env.USER }}
-          Host: {{ ansible_hostname }}
-          OS: {{ ansible_facts['system'] }}
-          =====================================
-          
-        dest: "{{ error_log_file }}"
-        mode: '0666'
-      become: true
-
-    - name: 🧠 Detect OS type
-      set_fact:
-        is_macos: "{{ ansible_facts['system'] == 'Darwin' }}"
-        is_linux: "{{ ansible_facts['system'] == 'Linux' }}"
-
-    - name: 📝 Log OS detection
-      lineinfile:
-        path: "{{ log_file }}"
-        line: "[{{ ansible_date_time.iso8601 }}] OS Detection: {{ 'macOS' if is_macos else 'Linux' }}"
-      become: true
-
-    - name: 🔗 Set nix-config repo URL based on OS
-      set_fact:
-        nix_config_repo_url: "{{ nix_config_repo_macos if is_macos else nix_config_repo_linux }}"
-
-    - name: 📝 Log flake configuration
-      lineinfile:
-        path: "{{ log_file }}"
-        line: "[{{ ansible_date_time.iso8601 }}] Flake Config: {{ nix_config_repo_url }}#{{ ansible_env.USER }}@{{ ansible_hostname }}"
-      become: true
-
-    - name: 🖥️ Show selected OS and flake path
-      debug:
-        msg: |
-          🧠 OS detected: {{ 'macOS' if is_macos else 'Linux' }}
-          🧩 Using flake: {{ nix_config_repo_url }}#{{ ansible_env.USER }}@{{ ansible_hostname }}
-
-    - name: 📄 Ensure ~/.zshrc exists
-      file:
-        path: "{{ ansible_env.HOME }}/.zshrc"
-        state: touch
-        mode: '0644'
-
-    - name: 📁 Ensure ~/.config directory exists
-      file:
-        path: "{{ ansible_env.HOME }}/.config"
-        state: directory
         mode: '0755'
-
-    # Linux-specific zsh setup
-    - name: 🔍 Check if zsh is installed (Linux only)
-      when: is_linux
-      command: which zsh
-      register: zsh_check
-      ignore_errors: true
-
-    - name: 🧰 Install zsh if missing (Linux only)
-      when: is_linux and zsh_check.rc != 0
-      package:
-        name: zsh
-        state: present
-    
-    - name: 📝 Stamp .zshrc with bootstrap date
-      lineinfile:
-        path: "{{ ansible_env.HOME }}/.zshrc"
-        line: "# bootstrapped on {{ lookup('pipe', 'date +%F') }}"
-        insertafter: BOF
-
-    - name: 🌀 Check current user shell (Linux only)
-      when: is_linux
-      command: getent passwd {{ ansible_env.USER }}
-      register: user_info
-
-    - name: 🛠️ Change default shell to zsh (Linux only if needed)
-      when: is_linux and (user_info.stdout.split(':')[-1] != '/bin/zsh')
-      user:
-        name: "{{ ansible_env.USER }}"
-        shell: /bin/zsh
-
-    # Nix install (more robust check)
-    - name: 📦 Check if Nix environment is initialized
-      stat:
-        path: /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
-      register: nix_env_initialized
-
-    - name: 📝 Log Nix environment check
-      lineinfile:
-        path: "{{ log_file }}"
-        line: "[{{ ansible_date_time.iso8601 }}] Nix Environment Check: {{ 'Found' if nix_env_initialized.stat.exists else 'Not Found' }}"
       become: true
+      tags: [logging]
 
-    - name: 🍎 Install Nix (macOS with Determinate Nix Installer)
-      when: is_macos and not nix_env_initialized.stat.exists
-      shell: |
-        curl -fsSL https://install.determinate.systems/nix | sh -s -- install --no-confirm
-      args:
-        executable: /bin/bash
-      register: nix_install_result
-      failed_when: nix_install_result.rc != 0
+  roles:
+    - role: common
+      tags: [common, nix, flake, logging]
+    - role: mac_shell
+      tags: [mac, shell, apps]
+    - role: linux_desktop
+      tags: [linux, hyprland]
+    - role: languages
+      tags: [langs]
 
-    - name: 📝 Log Nix installation (macOS)
-      when: is_macos and not nix_env_initialized.stat.exists
-      block:
-        - name: 📝 Log successful Nix install
-          when: nix_install_result.rc == 0
-          lineinfile:
-            path: "{{ log_file }}"
-            line: "[{{ ansible_date_time.iso8601 }}] SUCCESS: Nix installed on macOS"
-          become: true
+  tasks:
+    - name: 🧾 Write buffered logs (main)
+      when: log_buffer is defined
+      copy:
+        dest: "{{ log_file }}"
+        content: "{{ log_buffer }}\n"
+        mode: '0644'
+      become: true
+      tags: [logging]
 
-        - name: 📝 Log Nix install failure
-          when: nix_install_result.rc != 0
-          lineinfile:
-            path: "{{ error_log_file }}"
-            line: |
-              [{{ ansible_date_time.iso8601 }}] ERROR: Nix installation failed on macOS
-              Return code: {{ nix_install_result.rc }}
-              stdout: {{ nix_install_result.stdout | default('') }}
-              stderr: {{ nix_install_result.stderr | default('') }}
-          become: true
-
-    - name: 🧩 Initialize Nix in .zshrc (macOS only)
-      when: is_macos
-      lineinfile:
-        path: "{{ ansible_env.HOME }}/.zshrc"
-        line: 'source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
-        create: yes
-        insertafter: EOF
-
-    - name: 🐧 Install Nix (Linux with Determinate Nix Installer)
-      when: is_linux and not nix_env_initialized.stat.exists
-      shell: |
-        curl -fsSL https://install.determinate.systems/nix | sh -s -- install --no-confirm
-      args:
-        executable: /bin/bash
-      register: nix_install_linux_result
-
-    - name: 📝 Log Nix installation (Linux)
-      when: is_linux and not nix_env_initialized.stat.exists
-      block:
-        - name: 📝 Log successful Nix install
-          when: nix_install_linux_result.rc == 0
-          lineinfile:
-            path: "{{ log_file }}"
-            line: "[{{ ansible_date_time.iso8601 }}] SUCCESS: Nix installed on Linux"
-          become: true
-
-        - name: 📝 Log Nix install failure
-          when: nix_install_linux_result.rc != 0
-          lineinfile:
-            path: "{{ error_log_file }}"
-            line: |
-              [{{ ansible_date_time.iso8601 }}] ERROR: Nix installation failed on Linux
-              Return code: {{ nix_install_linux_result.rc }}
-              stdout: {{ nix_install_linux_result.stdout | default('') }}
-              stderr: {{ nix_install_linux_result.stderr | default('') }}
-          become: true
-
-    - name: ⚠️ Warn if Nix environment was not initialized
-      when: not nix_env_initialized.stat.exists
-      debug:
-        msg: "⚠️ nix-daemon.sh missing — Nix may not be fully installed."
-
-    # Clone flake-based config
-    - name: 📥 Clone or update nix-config repo
-      git:
-        repo: "{{ nix_config_repo_url }}"
-        dest: "{{ ansible_env.HOME }}/nix-config"
-        version: main
-        update: yes
-      register: git_clone_result
-      ignore_errors: true
-
-    - name: 📝 Log git clone operation
-      block:
-        - name: 📝 Log successful git clone
-          when: git_clone_result.failed is not defined or not git_clone_result.failed
-          lineinfile:
-            path: "{{ log_file }}"
-            line: "[{{ ansible_date_time.iso8601 }}] SUCCESS: Git repo cloned/updated from {{ nix_config_repo_url }}"
-          become: true
-
-        - name: 📝 Log git clone failure
-          when: git_clone_result.failed is defined and git_clone_result.failed
-          lineinfile:
-            path: "{{ error_log_file }}"
-            line: |
-              [{{ ansible_date_time.iso8601 }}] ERROR: Git clone/update failed
-              Repository: {{ nix_config_repo_url }}
-              Error: {{ git_clone_result.msg | default('') }}
-          become: true
-
-    # Optional macOS GUI app install
-    - name: 🔍 Check if Raycast is already installed (macOS only)
-      when: is_macos
-      command: brew list --cask raycast
-      register: raycast_installed
-      ignore_errors: true
-      become: false
-
-    - name: 💻 Install Raycast via Homebrew Cask (macOS only, if not installed)
-      when: is_macos and raycast_installed.rc != 0
-      become: false
-      community.general.homebrew:
-        name: raycast
-        state: present
-        install_options: cask
-
-    - name: ✅ Raycast already installed (macOS only)
-      when: is_macos and raycast_installed.rc == 0
-      debug:
-        msg: "✅ Raycast is already installed — skipping."
-
-    # Home Manager init + switch
-    - name: 🧪 Home Manager setup
-      block:
-        - name: 📂 Check if home-manager is already initialized
-          stat:
-            path: "{{ ansible_env.HOME }}/.config/home-manager"
-          register: hm_initialized
-
-        - name: 📝 Log Home Manager initialization check
-          lineinfile:
-            path: "{{ log_file }}"
-            line: "[{{ ansible_date_time.iso8601 }}] Home Manager Check: {{ 'Already initialized' if hm_initialized.stat.exists else 'Not initialized' }}"
-          become: true
-
-        - name: 🧱 Initialize Home Manager with flake
-          when: not hm_initialized.stat.exists
-          shell: |
-            . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
-            nix run home-manager/master -- init --switch --flake ~/nix-config#{{ ansible_env.USER }}@{{ ansible_hostname }}
-          args:
-            executable: /bin/zsh
-          environment:
-            NIXPKGS_ALLOW_UNFREE: "1"
-          register: hm_init_result
-          ignore_errors: true
-
-        - name: 📝 Log Home Manager initialization
-          when: not hm_initialized.stat.exists
-          block:
-            - name: 📝 Log successful HM init
-              when: hm_init_result.rc == 0
-              lineinfile:
-                path: "{{ log_file }}"
-                line: "[{{ ansible_date_time.iso8601 }}] SUCCESS: Home Manager initialized with flake"
-              become: true
-
-            - name: 📝 Log HM init failure
-              when: hm_init_result.rc != 0
-              lineinfile:
-                path: "{{ error_log_file }}"
-                line: |
-                  [{{ ansible_date_time.iso8601 }}] ERROR: Home Manager initialization failed
-                  Return code: {{ hm_init_result.rc }}
-                  stdout: {{ hm_init_result.stdout | default('') }}
-                  stderr: {{ hm_init_result.stderr | default('') }}
-              become: true
-
-        - name: 🔍 Check if flake.nix exists in ~/nix-config
-          stat:
-            path: "{{ ansible_env.HOME }}/nix-config/flake.nix"
-          register: flake_exists
-
-        - name: 📝 Log flake.nix check
-          lineinfile:
-            path: "{{ log_file }}"
-            line: "[{{ ansible_date_time.iso8601 }}] Flake Check: {{ 'Found flake.nix' if flake_exists.stat.exists else 'flake.nix missing' }}"
-          become: true
-
-        - name: ✅ Apply Home Manager config
-          when: flake_exists.stat.exists
-          shell: |
-            . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
-            home-manager switch --flake ~/nix-config#{{ ansible_env.USER }}@{{ ansible_hostname }}
-          args:
-            executable: /bin/zsh
-          register: hm_switch_result
-          ignore_errors: true
-
-        - name: 📝 Log Home Manager switch
-          when: flake_exists.stat.exists
-          block:
-            - name: 📝 Log successful HM switch
-              when: hm_switch_result.rc == 0
-              lineinfile:
-                path: "{{ log_file }}"
-                line: "[{{ ansible_date_time.iso8601 }}] SUCCESS: Home Manager config applied successfully"
-              become: true
-
-            - name: 📝 Log HM switch failure
-              when: hm_switch_result.rc != 0
-              lineinfile:
-                path: "{{ error_log_file }}"
-                line: |
-                  [{{ ansible_date_time.iso8601 }}] ERROR: Home Manager switch failed
-                  Return code: {{ hm_switch_result.rc }}
-                  stdout: {{ hm_switch_result.stdout | default('') }}
-                  stderr: {{ hm_switch_result.stderr | default('') }}
-              become: true
-
-        - name: ⚠️ Warn if flake.nix is missing
-          when: not flake_exists.stat.exists
-          debug:
-            msg: "⚠️ flake.nix not found in ~/nix-config — skipping home-manager switch."
-
-        - name: 📝 Log missing flake warning
-          when: not flake_exists.stat.exists
-          lineinfile:
-            path: "{{ error_log_file }}"
-            line: "[{{ ansible_date_time.iso8601 }}] WARNING: flake.nix missing - Home Manager switch skipped"
-          become: true
-
-      rescue:
-        - name: 📝 Log Home Manager block failure
-          lineinfile:
-            path: "{{ error_log_file }}"
-            line: |
-              [{{ ansible_date_time.iso8601 }}] CRITICAL ERROR: Home Manager setup block failed
-              Error: {{ ansible_failed_result.msg | default('Unknown error') }}
-          become: true
+    - name: 🧾 Write buffered error logs
+      when: error_log_buffer is defined
+      copy:
+        dest: "{{ error_log_file }}"
+        content: "{{ error_log_buffer }}\n"
+        mode: '0644'
+      become: true
+      tags: [logging]
 
     - name: 📋 Display log file locations
       debug:
         msg: |
-          🎯 Bootstrap completed! Check logs for details:
+          🎯 Bootstrap completed (roles). Check logs for details:
           📝 Main log: {{ log_file }}
           ❌ Error log: {{ error_log_file }}
-
-    - name: 📝 Log completion
-      lineinfile:
-        path: "{{ log_file }}"
-        line: |
-          [{{ ansible_date_time.iso8601 }}] =====================================
-          Bootstrap completed successfully!
-          =====================================
-      become: true
+      tags: [summary]

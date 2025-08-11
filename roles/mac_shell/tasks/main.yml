@@ -1,0 +1,14 @@
+---
+# mac_shell role: macOS-specific apps and shell config (dry-run aware)
+
+- name: Ensure Raycast present (macOS)
+  when: ansible_facts['system'] == 'Darwin' and not ansible_check_mode
+  community.general.homebrew:
+    name: raycast
+    state: present
+    install_options: cask
+
+- name: (DRY-RUN) Would ensure Raycast present
+  when: ansible_facts['system'] == 'Darwin' and ansible_check_mode
+  debug:
+    msg: "Would install/ensure Raycast via brew cask"

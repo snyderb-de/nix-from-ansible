@@ -1,0 +1,165 @@
+---
+# Common role: logging, OS facts, flake clone, Nix install (supports dry-run)
+
+- name: Gather minimal facts (ensure available when role called directly)
+  setup:
+    gather_subset: min
+  when: ansible_facts is not defined or ansible_facts|length == 0
+
+- name: Detect OS type
+  set_fact:
+    is_macos: "{{ ansible_facts['system'] == 'Darwin' }}"
+    is_linux: "{{ ansible_facts['system'] == 'Linux' }}"
+
+- name: Assert required repo variables are defined
+  assert:
+    that:
+      - nix_config_repo_macos is defined
+      - nix_config_repo_linux is defined
+    fail_msg: "nix_config_repo_macos and nix_config_repo_linux must be provided"
+
+- name: Set flake repo URL based on OS
+  set_fact:
+    nix_config_repo_url: "{{ nix_config_repo_macos if is_macos else nix_config_repo_linux }}"
+    flake_ref: "{{ (nix_config_repo_macos if is_macos else nix_config_repo_linux) }}#{{ ansible_env.USER }}@{{ ansible_hostname }}"
+
+- name: Initialize log buffers
+  when: enable_buffered_logging
+  set_fact:
+    log_buffer: |-
+      =====================================
+      Nix Bootstrap Log
+      Started: {{ ansible_date_time.iso8601 }}
+      User: {{ ansible_env.USER }}
+      Host: {{ ansible_hostname }}
+      OS: {{ ansible_facts['system'] }}
+      =====================================
+    error_log_buffer: |-
+      =====================================
+      Nix Bootstrap Error Log
+      Started: {{ ansible_date_time.iso8601 }}
+      User: {{ ansible_env.USER }}
+      Host: {{ ansible_hostname }}
+      OS: {{ ansible_facts['system'] }}
+      =====================================
+
+- name: Append log entry (helper include)
+  vars:
+    log_line: "[{{ ansible_date_time.iso8601 }}] OS Detection: {{ 'macOS' if is_macos else 'Linux' }}"
+  set_fact:
+    log_buffer: "{{ (log_buffer | default('')) + '\n' + log_line }}"
+  when: enable_buffered_logging
+  changed_when: false
+
+- name: Ensure ~/.zshrc exists
+  file:
+    path: "{{ ansible_env.HOME }}/.zshrc"
+    state: touch
+    mode: '0644'
+
+- name: Stamp .zshrc (once)
+  shell: |
+    grep -q '^# bootstrapped on ' "{{ ansible_env.HOME }}/.zshrc" || echo "# bootstrapped on {{ ansible_date_time.date }}" | cat - "{{ ansible_env.HOME }}/.zshrc" > "{{ ansible_env.HOME }}/.zshrc.tmp" && mv "{{ ansible_env.HOME }}/.zshrc.tmp" "{{ ansible_env.HOME }}/.zshrc"
+  args:
+    executable: /bin/bash
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Check if Nix environment is initialized
+  stat:
+    path: /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+  register: nix_env_initialized
+
+- name: Append Nix env check log
+  set_fact:
+    log_buffer: "{{ (log_buffer | default('')) + '\n[' + ansible_date_time.iso8601 + '] Nix Environment Check: ' + ( 'Found' if nix_env_initialized.stat.exists else 'Not Found') }}"
+  when: enable_buffered_logging
+  changed_when: false
+
+- name: (DRY-RUN) Would install Nix
+  debug:
+    msg: "Would run Determinate Nix installer"
+  when: ansible_check_mode and not nix_env_initialized.stat.exists and not skip_nix_install
+
+- name: Install Nix (Determinate) 
+  when: not ansible_check_mode and not nix_env_initialized.stat.exists and not skip_nix_install
+  shell: |
+    curl --proto '=https' --tlsv1.2 --retry 5 --retry-delay 3 -fL \
+      https://install.determinate.systems/nix | sh -s -- install --no-confirm
+  args:
+    executable: /bin/bash
+  register: nix_install_result
+  retries: 3
+  delay: 5
+  until: nix_install_result.rc == 0
+
+- name: Post-install Nix version
+  when: not ansible_check_mode and (nix_install_result is defined and nix_install_result.rc == 0)
+  shell: |
+    . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+    nix --version
+  args:
+    executable: /bin/bash
+  register: nix_version
+  changed_when: false
+
+- name: Log Nix install result
+  when: enable_buffered_logging and not ansible_check_mode and (nix_install_result is defined)
+  set_fact:
+    log_buffer: >-
+      {{ (log_buffer | default('')) + '\n[' + ansible_date_time.iso8601 + '] ' + ( 'SUCCESS: Nix installed (' + (nix_version.stdout | default('version unknown')) + ')' if nix_install_result.rc == 0 else 'ERROR: Nix installation failed rc=' + (nix_install_result.rc | string) ) }}
+    error_log_buffer: >-
+      {{ (error_log_buffer | default('')) }}{% if nix_install_result.rc != 0 %}\n[{{ ansible_date_time.iso8601 }}] ERROR: Nix installation failed\nReturn code: {{ nix_install_result.rc }}\nstdout: {{ nix_install_result.stdout | default('') }}\nstderr: {{ nix_install_result.stderr | default('') }}{% endif %}
+  changed_when: false
+
+- name: Warn if Nix missing after attempted install
+  debug:
+    msg: "⚠️ nix-daemon.sh missing — Nix may not be fully installed."
+  when: (nix_install_result is defined and nix_install_result.rc != 0) or (not nix_env_initialized.stat.exists and skip_nix_install)
+
+- name: Clone or update nix-config (dry-run safe)
+  git:
+    repo: "{{ nix_config_repo_url }}"
+    dest: "{{ ansible_env.HOME }}/nix-config"
+    version: main
+    update: yes
+  register: git_clone_result
+  when: not ansible_check_mode
+  retries: 3
+  delay: 5
+  until: git_clone_result is succeeded
+
+- name: (DRY-RUN) Would clone flake repo
+  debug:
+    msg: "Would clone/update {{ nix_config_repo_url }} to ~/nix-config"
+  when: ansible_check_mode
+
+- name: Log git clone result
+  when: enable_buffered_logging and not ansible_check_mode and (git_clone_result is defined)
+  set_fact:
+    log_buffer: >-
+      {{ (log_buffer | default('')) + '\n[' + ansible_date_time.iso8601 + '] ' + ( 'SUCCESS: Git repo cloned/updated from ' + nix_config_repo_url if (git_clone_result is succeeded) else 'ERROR: Git clone/update failed for ' + nix_config_repo_url ) }}
+    error_log_buffer: >-
+      {{ (error_log_buffer | default('')) }}{% if not (git_clone_result is succeeded) %}\n[{{ ansible_date_time.iso8601 }}] ERROR: Git clone/update failed\nRepository: {{ nix_config_repo_url }}\nError: {{ git_clone_result.msg | default('') }}{% endif %}
+  changed_when: false
+
+- name: Fail if clone failed and directory missing
+  stat:
+    path: "{{ ansible_env.HOME }}/nix-config"
+  register: nix_config_dir
+  when: not ansible_check_mode
+
+- name: Abort due to missing flake repo after failed clone
+  when: not ansible_check_mode and (git_clone_result is defined) and not (git_clone_result is succeeded) and not nix_config_dir.stat.exists
+  fail:
+    msg: "Git clone failed and nix-config directory absent; cannot continue."
+
+- name: Finalize logs
+  when: enable_buffered_logging
+  set_fact:
+    log_buffer: |-
+      {{ log_buffer }}
+      [{{ ansible_date_time.iso8601 }}] =====================================
+      Common role completed
+      =====================================
+  changed_when: false

@@ -1,0 +1,12 @@
+---
+# linux_desktop role stub: Hyprland / Wayland stack placeholder (dry-run aware)
+
+- name: (DRY-RUN) Would install Hyprland stack packages
+  when: ansible_check_mode and ansible_facts['system'] == 'Linux'
+  debug:
+    msg: "Would install hyprland, waybar, hyprpaper, wl-clipboard, grim, slurp, xdg-desktop-portal-hyprland, pipewire, fonts"
+
+- name: Install Hyprland stack packages (placeholder)
+  when: not ansible_check_mode and ansible_facts['system'] == 'Linux'
+  debug:
+    msg: "(Placeholder) Install Hyprland related packages via Nix or system package manager"

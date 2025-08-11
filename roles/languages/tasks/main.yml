@@ -1,0 +1,12 @@
+---
+# languages role: manage programming language toolchains (dry-run aware)
+
+- name: (DRY-RUN) Would configure language toolchains
+  when: ansible_check_mode
+  debug:
+    msg: "Would ensure languages via Nix/Home Manager (placeholder)"
+
+- name: Configure language toolchains (placeholder)
+  when: not ansible_check_mode
+  debug:
+    msg: "(Placeholder) Manage languages (go, rust, node, python) via Nix packages"

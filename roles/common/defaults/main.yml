@@ -1,0 +1,6 @@
+---
+# Default vars for common role
+skip_nix_install: false
+skip_home_manager: false
+home_manager_channel: home-manager/master
+enable_buffered_logging: true
