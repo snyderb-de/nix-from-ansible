@@ -72,10 +72,10 @@ maybe_exec() {
 }
 
 # Command presence helpers (always real checks for accurate reporting)
-have_cmd() { command -v "$1" &>/dev/null; }
-have_cask() { have_cmd brew && brew list --cask "$1" &>/dev/null; }
-have_brew_pkg() { have_cmd brew && brew list "$1" &>/dev/null; }
-have_collection() { have_cmd ansible-galaxy && ansible-galaxy collection list 2>/dev/null | grep -q '^community.general\b'; }
+have_cmd() { command -v "$1" >/dev/null 2>&1; }
+have_cask() { have_cmd brew && brew list --cask "$1" >/dev/null 2>&1; }
+have_brew_pkg() { have_cmd brew && brew list --formula "$1" >/dev/null 2>&1; }
+have_collection() { have_cmd ansible-galaxy && ansible-galaxy collection list 2>/dev/null | LC_ALL=C grep -Eq '^community\.general(\s|$)'; }
 
 # Status accumulation (used only in dry run)
 STATUS_ITEMS=()
