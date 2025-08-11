@@ -52,21 +52,45 @@ done
 export HOMEBREW_NO_AUTO_UPDATE=1
 export HOMEBREW_NO_INSTALL_CLEANUP=1
 
-# Prevent DS_Store files on network shares
-defaults write com.apple.desktopservices DSDontWriteNetworkStores -bool TRUE
-
-# Enhanced logging function
+# --- Helper functions ---
+# Logging (avoid creating file in dry run)
 log() {
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOGFILE"
+  if [ "$DRY_RUN" = true ]; then
+    echo "[DRY RUN LOG] $1"
+  else
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOGFILE"
+  fi
 }
 
-REPO_URL="$1"
-mkdir -p "$HOME/.config"
+# Conditional execution wrapper
+maybe_exec() {
+  if [ "$DRY_RUN" = true ]; then
+    echo "  [DRY RUN] Would execute: $1"
+  else
+    eval "$1"
+  fi
+}
+
+# Command presence helpers (always real checks for accurate reporting)
+have_cmd() { command -v "$1" &>/dev/null; }
+have_cask() { have_cmd brew && brew list --cask "$1" &>/dev/null; }
+have_brew_pkg() { have_cmd brew && brew list "$1" &>/dev/null; }
+have_collection() { have_cmd ansible-galaxy && ansible-galaxy collection list 2>/dev/null | grep -q '^community.general\b'; }
+
+# Status accumulation (used only in dry run)
+STATUS_ITEMS=()
+add_status() { STATUS_ITEMS+=("$1:$2"); }
+
+# Prevent DS_Store files on network shares (wrap for dry run)
+maybe_exec "defaults write com.apple.desktopservices DSDontWriteNetworkStores -bool TRUE"
+
 LOGFILE="$HOME/.config/bootstrap.log"
+# Ensure config dir (wrap)
+maybe_exec "mkdir -p \"$HOME/.config\""
 
 if [[ -z "$REPO_URL" ]]; then
   echo "❌ Missing required argument: git-repo-url"
-  log "📦 Usage: $0 [OPTIONS] <git-repo-url>"
+  echo "📦 Usage: $0 [OPTIONS] <git-repo-url>"
   echo "💡 Use --help for more information"
   exit 1
 fi
@@ -75,35 +99,6 @@ if [ "$DRY_RUN" = true ]; then
   echo "🔍 DRY RUN MODE - No changes will be made"
   echo "========================================"
 fi
-
-# Helper function for dry run output
-dry_run_msg() {
-    if [ "$DRY_RUN" = true ]; then
-        echo "  [DRY RUN] Would: $1"
-    else
-        echo "  $1"
-    fi
-}
-
-# Helper function to conditionally execute commands
-maybe_exec() {
-    if [ "$DRY_RUN" = true ]; then
-        echo "  [DRY RUN] Would execute: $1"
-    else
-        eval "$1"
-    fi
-}
-
-# Helper function for command checks in dry run
-check_command() {
-    local cmd="$1"
-    if [ "$DRY_RUN" = true ]; then
-        echo "  [DRY RUN] Would check if '$cmd' is installed"
-        return 1  # Assume not installed for dry run demo
-    else
-        command -v "$cmd" &>/dev/null
-    fi
-}
 
 # Exit if bootstrap has already been completed
 if [[ -f "$HOME/.bootstrap_complete" ]]; then
@@ -116,10 +111,24 @@ if [[ -f "$HOME/.bootstrap_complete" ]]; then
   fi
 fi
 
+# Only redirect logs in real run
 if [ "$DRY_RUN" = false ]; then
   exec > >(tee -a "$LOGFILE") 2>&1
 else
   echo "🔍 Dry run - output would be logged to: $LOGFILE"
+fi
+
+# Pre-run status detection (dry run only) BEFORE any installs
+if [ "$DRY_RUN" = true ]; then
+  add_status "Xcode Command Line Tools" "$(xcode-select -p &>/dev/null && echo yes || echo no)"
+  add_status "Homebrew" "$(have_cmd brew && echo yes || echo no)"
+  add_status "Ghostty (cask)" "$(have_cask ghostty && echo yes || echo no)"
+  add_status "Lazygit" "$(have_cmd brew && brew list lazygit &>/dev/null && echo yes || echo no)"
+  add_status "PowerShell (cask)" "$(have_cask powershell && echo yes || echo no)"
+  add_status "Ansible" "$(have_cmd ansible && echo yes || echo no)"
+  add_status "community.general collection" "$(have_collection && echo yes || echo no)"
+  add_status "Repo directory ~/nix-setup-ansible" "$( [ -d "$HOME/nix-setup-ansible" ] && echo yes || echo no)"
+  add_status "Bootstrap marker" "$( [ -f "$HOME/.bootstrap_complete" ] && echo yes || echo no)"
 fi
 
 # Check which shell is being used
@@ -132,140 +141,144 @@ fi
 log "🌐 Checking internet connectivity..."
 if ! ping -c 1 github.com &>/dev/null; then
   log "❌ No internet connection. Please connect and try again."
-  exit 1
+  [ "$DRY_RUN" = true ] && echo "(Would exit here)" || exit 1
 fi
 
 # Ensure sufficient disk space (5GB minimum)
 log "💾 Checking available disk space..."
 if [[ $(df -k / | awk 'NR==2 {print $4}') -lt 5242880 ]]; then
   log "❌ Insufficient disk space. At least 5GB free space required."
-  exit 1
+  [ "$DRY_RUN" = true ] && echo "(Would exit here)" || exit 1
 fi
 
 # Ensure Xcode Command Line Tools are installed
-if [ "$DRY_RUN" = true ] || ! xcode-select -p &>/dev/null; then
+if ! xcode-select -p &>/dev/null; then
+  log "🛠️ Xcode Command Line Tools missing"
+  maybe_exec "xcode-select --install"
   if [ "$DRY_RUN" = true ]; then
-    echo "🛠️ [DRY RUN] Would install Xcode Command Line Tools..."
-    echo "  [DRY RUN] Would execute: xcode-select --install"
     echo "  [DRY RUN] Would wait for installation to complete"
   else
-    log "🛠️ Installing Xcode Command Line Tools..."
-    xcode-select --install
-
     log "⏳ Waiting for Xcode Command Line Tools to finish installing..."
-    until xcode-select -p &>/dev/null; do
-      sleep 5
-    done
+    until xcode-select -p &>/dev/null; do sleep 5; done
   fi
 else
-  echo "✅ Xcode Command Line Tools already installed"
+  log "✅ Xcode Command Line Tools already installed"
 fi
 
-# Install Homebrew
-log "🍺 Installing Homebrew..."
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+# Homebrew install (only if missing)
+if ! have_cmd brew; then
+  log "🍺 Homebrew not found"
+  maybe_exec "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+else
+  log "✅ Homebrew already installed"
+fi
 
 # Backup user configuration files before modifying
 if [[ -f ~/.zprofile ]]; then
-  log "📑 Backing up existing .zprofile..."
-  cp ~/.zprofile ~/.zprofile.backup."$(date +%Y%m%d%H%M%S)"
+  maybe_exec "cp ~/.zprofile ~/.zprofile.backup.\"$(date +%Y%m%d%H%M%S)\""
+  log "📑 Existing .zprofile backed up (or would be in dry run)"
 fi
 
-# Add Homebrew to shell environment
-log "➕ Adding Homebrew to shell..."
-if [[ -d /opt/homebrew ]]; then
-  echo "eval \"\$(/opt/homebrew/bin/brew shellenv)\"" >> ~/.zprofile
-  eval "$(/opt/homebrew/bin/brew shellenv)"
-else
-  echo "eval \"\$(/usr/local/bin/brew shellenv)\"" >> ~/.zprofile
-  eval "$(/usr/local/bin/brew shellenv)"
+# Add Homebrew to shell environment (only if brew exists now)
+if have_cmd brew; then
+  log "➕ Ensuring Homebrew shellenv in ~/.zprofile"
+  if [[ -d /opt/homebrew ]]; then
+    maybe_exec "grep -q 'brew shellenv' ~/.zprofile || echo 'eval \"$(/opt/homebrew/bin/brew shellenv)\"' >> ~/.zprofile"
+    [ "$DRY_RUN" = false ] && eval "$(/opt/homebrew/bin/brew shellenv)"
+  else
+    maybe_exec "grep -q 'brew shellenv' ~/.zprofile || echo 'eval \"$(/usr/local/bin/brew shellenv)\"' >> ~/.zprofile"
+    [ "$DRY_RUN" = false ] && eval "$(/usr/local/bin/brew shellenv)"
+  fi
 fi
 
 # Install Ghostty Terminal if not installed
 log "🖥️ Checking for Ghostty terminal..."
-if ! brew list --cask ghostty &>/dev/null; then
-  log "📥 Installing Ghostty terminal..."
-  brew install --cask ghostty
-else
+if have_cask ghostty; then
   log "✅ Ghostty terminal already installed."
+else
+  maybe_exec "brew install --cask ghostty"
 fi
 
 # Install Lazygit if not installed
 log "🔄 Checking for Lazygit..."
-if ! brew list lazygit &>/dev/null; then
-  log "📥 Installing Lazygit..."
-  brew install lazygit
-else
+if have_cmd brew && brew list lazygit &>/dev/null; then
   log "✅ Lazygit already installed."
-fi
-
-# Install Lazygit if not installed
-log "🔄 Checking for Lazygit..."
-if ! brew list lazygit &>/dev/null; then
-  log "📥 Installing Lazygit..."
-  brew install lazygit
 else
-  log "✅ Lazygit already installed."
+  maybe_exec "brew install lazygit"
 fi
 
 # Install PowerShell if not installed
 log "🔄 Checking for PowerShell..."
-if ! brew list --cask powershell &>/dev/null; then
-  log "📥 Installing PowerShell..."
-  brew install --cask powershell
-else
+if have_cask powershell; then
   log "✅ PowerShell already installed."
+else
+  maybe_exec "brew install --cask powershell"
 fi
-
 
 # Check and install Ansible if needed
 log "🔄 Checking for Ansible..."
-if ! command -v ansible &>/dev/null; then
-  log "📥 Installing Ansible..."
-  brew install ansible
-else
+if have_cmd ansible; then
   log "✅ Ansible already installed."
+else
+  maybe_exec "brew install ansible"
 fi
 
 # Check and install required Ansible Galaxy collection if needed
-log "🔄 Checking for required Ansible Galaxy collections..."
-if ! ansible-galaxy collection list | grep -q "community.general"; then
-  log "📥 Installing required Ansible Galaxy collections..."
-  ansible-galaxy collection install community.general
-else
+log "🔄 Checking for required Ansible Galaxy collection community.general..."
+if have_collection; then
   log "✅ Ansible Galaxy collection community.general already installed."
-fi
-
-# Clone the repo
-log "📥 Cloning repo from $REPO_URL..."
-if [ -d "$HOME/nix-setup-ansible" ]; then
-  log "🔄 Repo already exists, pulling latest..."
-  cd ~/nix-setup-ansible && git pull
 else
-  git clone "$REPO_URL" ~/nix-setup-ansible
-  cd ~/nix-setup-ansible
+  maybe_exec "ansible-galaxy collection install community.general"
 fi
 
-# Ask user before running the playbook
-read -p "🤔 Run the Ansible playbook now? (Y/n) " -n 1 -r
-echo
-if [[ ! $REPLY =~ ^[Yy]$ ]] && [[ -n $REPLY ]]; then
-  log "❌ Exiting without running the playbook. You can run it manually later."
-  exit 0
+# Clone / update repo
+log "📥 Preparing repository from $REPO_URL..."
+if [ -d "$HOME/nix-setup-ansible" ]; then
+  log "🔄 Repo already exists"
+  if [ "$DRY_RUN" = true ]; then
+    echo "  [DRY RUN] Would: cd ~/nix-setup-ansible && git pull"
+  else
+    cd ~/nix-setup-ansible && git pull
+  fi
+else
+  maybe_exec "git clone \"$REPO_URL\" ~/nix-setup-ansible"
+  if [ "$DRY_RUN" = false ]; then cd ~/nix-setup-ansible; fi
 fi
 
-# Run the Ansible playbook
-log "▶️ Running Ansible playbook..."
-ansible-playbook -i inventory playbook.yml --ask-become-pass
+# Prompt for playbook (skip real prompt in dry run)
+if [ "$DRY_RUN" = true ]; then
+  echo "🤔 [DRY RUN] Would prompt to run the Ansible playbook now (default Yes)"
+  echo "  [DRY RUN] Would execute: ansible-playbook -i inventory playbook.yml --ask-become-pass"
+else
+  read -p "🤔 Run the Ansible playbook now? (Y/n) " -n 1 -r
+  echo
+  if [[ ! $REPLY =~ ^[Yy]$ ]] && [[ -n $REPLY ]]; then
+    log "❌ Exiting without running the playbook. You can run it manually later."
+    exit 0
+  fi
+  log "▶️ Running Ansible playbook..."
+  ansible-playbook -i inventory playbook.yml --ask-become-pass
+fi
 
 # Mark bootstrap as completed
 if [ "$DRY_RUN" = false ]; then
-  touch "$HOME/.bootstrap_complete"
+  maybe_exec "touch \"$HOME/.bootstrap_complete\""
   log "✅ Bootstrap complete! Output logged to $LOGFILE"
 else
   echo "  [DRY RUN] Would create completion marker: ~/.bootstrap_complete"
   echo ""
+  echo "===== DRY RUN STATUS REPORT (Pre-existing State) ====="
+  for item in "${STATUS_ITEMS[@]}"; do
+    label="${item%%:*}"; val="${item##*:}";
+    if [ "$val" = yes ]; then
+      echo "✅ $label"
+    else
+      echo "⚠️ $label (missing)"
+    fi
+  done
+  echo "======================================================"
+  echo ""
   echo "🔍 DRY RUN COMPLETE - No changes were made"
-  echo "💡 To actually run: $0 $REPO_URL"
-  echo "💡 All output would be logged to: $LOGFILE"
+  echo "💡 To run for real: $0 $REPO_URL"
+  echo "💡 Output will be logged to: $LOGFILE"
 fi
