@@ -69,6 +69,8 @@ export HOMEBREW_NO_INSTALL_CLEANUP=1
 # --- Helper functions ---
 log() { if [ "$DRY_RUN" = true ]; then echo "[DRY RUN LOG] $1"; else echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOGFILE"; fi; }
 run_or_echo() { if [ "$DRY_RUN" = true ]; then echo "  [DRY RUN] Would: $*"; else "$@"; fi; }
+# Added missing maybe_exec wrapper (legacy name used below)
+maybe_exec() { if [ "$DRY_RUN" = true ]; then echo "  [DRY RUN] Would: $*"; else eval "$*"; fi; }
 
 have_cmd() { command -v "$1" >/dev/null 2>&1; }
 
@@ -154,6 +156,7 @@ else
 fi
 
 # Host dependency: Homebrew (install here to remove playbook duplication)
+BREW_ENV_APPLIED=false
 if ! have_cmd brew; then
   log "🍺 Homebrew not found"
   if [ "$DRY_RUN" = true ] && [ "$FULL_SIM" = false ]; then
@@ -162,8 +165,20 @@ if ! have_cmd brew; then
     if [ "$DRY_RUN" = true ] && [ "$FULL_SIM" = true ]; then
       echo "  [FULL SIM] Installing Homebrew (real network + file changes)"
     fi
-    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || {
-      log "❌ Homebrew install failed"; [ "$FULL_SIM" = true ] && exit 1; [ "$DRY_RUN" = false ] && exit 1; }
+    if /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; then
+      # After install, brew not yet on PATH in this shell; source it.
+      if [ -d /opt/homebrew ]; then BREW_PREFIX=/opt/homebrew; else BREW_PREFIX=/usr/local; fi
+      eval "$("${BREW_PREFIX}/bin/brew" shellenv)" || true
+      BREW_ENV_APPLIED=true
+      log "➕ Sourced brew shellenv (post-install)"
+      if ! grep -q 'brew shellenv' "$HOME/.zprofile" 2>/dev/null; then
+        echo "eval \"\$(\"${BREW_PREFIX}/bin/brew\" shellenv)\"" >> "$HOME/.zprofile"
+        log "➕ Added brew shellenv to ~/.zprofile"
+      fi
+    else
+      log "❌ Homebrew install failed"
+      [ "$FULL_SIM" = true ] && exit 1; [ "$DRY_RUN" = false ] && exit 1
+    fi
   fi
 else
   log "✅ Homebrew present"
@@ -172,14 +187,22 @@ fi
 # Ensure brew shellenv line for real or full sim (so ansible in full simulation can find brew-installed ansible)
 if have_cmd brew; then
   BREW_PREFIX=$( ( [ -d /opt/homebrew ] && echo /opt/homebrew ) || echo /usr/local )
-  if [ "$DRY_RUN" = true ] && [ "$FULL_SIM" = false ]; then
-    grep -q 'brew shellenv' "$HOME/.zprofile" 2>/dev/null || echo "  [DRY RUN] Would append brew shellenv to ~/.zprofile"
+  if [ "$BREW_ENV_APPLIED" = true ]; then
+    : # already handled above
   else
-    if ! grep -q 'brew shellenv' "$HOME/.zprofile" 2>/dev/null; then
-      echo "eval \"$($BREW_PREFIX/bin/brew shellenv)\"" >> "$HOME/.zprofile"
-      log "➕ Added brew shellenv to ~/.zprofile"
+    if [ "$DRY_RUN" = true ] && [ "$FULL_SIM" = false ]; then
+      grep -q 'brew shellenv' "$HOME/.zprofile" 2>/div/null || echo "  [DRY RUN] Would append brew shellenv to ~/.zprofile"
     else
-      log "ℹ️ brew shellenv already in ~/.zprofile"
+      if ! grep -q 'brew shellenv' "$HOME/.zprofile" 2>/dev/null; then
+        echo "eval \"\$(\"${BREW_PREFIX}/bin/brew\" shellenv)\"" >> "$HOME/.zprofile"
+        log "➕ Added brew shellenv to ~/.zprofile"
+      else
+        log "ℹ️ brew shellenv already in ~/.zprofile"
+      fi
+      # Also ensure current shell has brew (real run or full sim)
+      if [ "$FULL_SIM" = true ] || [ "$DRY_RUN" = false ]; then
+        eval "$("${BREW_PREFIX}/bin/brew" shellenv)" || true
+      fi
     fi
   fi
 fi
