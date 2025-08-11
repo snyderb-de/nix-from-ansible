@@ -85,17 +85,6 @@
     state: present
     install_options: cask
 
-- name: (DRY-RUN) Would ensure Ansible installed (brew)
-  when: ansible_check_mode and brew_check.rc == 0
-  debug:
-    msg: "Would ensure Ansible is installed via Homebrew"
-
-- name: Ensure Ansible installed
-  when: not ansible_check_mode and brew_check.rc == 0
-  community.general.homebrew:
-    name: ansible
-    state: present
-
 - name: Check community.general collection
   when: not ansible_check_mode
   command: ansible-galaxy collection list
