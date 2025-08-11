@@ -5,11 +5,16 @@ set -e
 # Parse command line arguments
 DRY_RUN=false
 REPO_URL=""
+SKIP_REPO=false
 
 while [[ $# -gt 0 ]]; do
   case $1 in
     --dry-run|-n)
       DRY_RUN=true
+      shift
+      ;;
+    --skip-repo)
+      SKIP_REPO=true
       shift
       ;;
     --help|-h)
@@ -19,20 +24,22 @@ while [[ $# -gt 0 ]]; do
       echo "Usage: $0 [OPTIONS] <git-repo-url>"
       echo ""
       echo "Options:"
-      echo "  --dry-run, -n    Show what would be done without making changes"
-      echo "  --help, -h       Show this help message"
+      echo "  --dry-run, -n     Show what would be done without making changes"
+      echo "  --skip-repo       Skip cloning/updating repo and running playbook"
+      echo "  --help, -h        Show this help message"
       echo ""
       echo "Description:"
       echo "  Sets up a complete Nix development environment by:"
       echo "  • Installing Xcode Command Line Tools"
       echo "  • Installing Homebrew package manager"
       echo "  • Installing Ansible automation tool"
-      echo "  • Cloning the nix-setup-ansible repository"
-      echo "  • Running the Ansible playbook to install Nix"
+      echo "  • (Optional) Cloning the nix-setup-ansible repository"
+      echo "  • (Optional) Running the Ansible playbook to install Nix"
       echo ""
       echo "Examples:"
       echo "  $0 https://github.com/user/nix-setup-ansible.git"
       echo "  $0 --dry-run https://github.com/user/nix-setup-ansible.git"
+      echo "  $0 --skip-repo --dry-run"
       echo ""
       exit 0
       ;;
@@ -88,8 +95,9 @@ LOGFILE="$HOME/.config/bootstrap.log"
 # Ensure config dir (wrap)
 maybe_exec "mkdir -p \"$HOME/.config\""
 
-if [[ -z "$REPO_URL" ]]; then
-  echo "❌ Missing required argument: git-repo-url"
+# Validate repo argument unless skipping
+if [[ -z "$REPO_URL" && "$SKIP_REPO" = false ]]; then
+  echo "❌ Missing required argument: git-repo-url (or use --skip-repo)"
   echo "📦 Usage: $0 [OPTIONS] <git-repo-url>"
   echo "💡 Use --help for more information"
   exit 1
@@ -127,7 +135,11 @@ if [ "$DRY_RUN" = true ]; then
   add_status "PowerShell (cask)" "$(have_cask powershell && echo yes || echo no)"
   add_status "Ansible" "$(have_cmd ansible && echo yes || echo no)"
   add_status "community.general collection" "$(have_collection && echo yes || echo no)"
-  add_status "Repo directory ~/nix-setup-ansible" "$( [ -d "$HOME/nix-setup-ansible" ] && echo yes || echo no)"
+  if [ "$SKIP_REPO" = true ]; then
+    add_status "Repository step" "skipped"
+  else
+    add_status "Repo directory ~/nix-setup-ansible" "$( [ -d "$HOME/nix-setup-ansible" ] && echo yes || echo no)"
+  fi
   add_status "Bootstrap marker" "$( [ -f "$HOME/.bootstrap_complete" ] && echo yes || echo no)"
 fi
 
@@ -231,33 +243,41 @@ else
   maybe_exec "ansible-galaxy collection install community.general"
 fi
 
-# Clone / update repo
-log "📥 Preparing repository from $REPO_URL..."
-if [ -d "$HOME/nix-setup-ansible" ]; then
-  log "🔄 Repo already exists"
-  if [ "$DRY_RUN" = true ]; then
-    echo "  [DRY RUN] Would: cd ~/nix-setup-ansible && git pull"
+# Clone / update repo (only if not skipped)
+if [ "$SKIP_REPO" = false ]; then
+  log "📥 Preparing repository from $REPO_URL..."
+  if [ -d "$HOME/nix-setup-ansible" ]; then
+    log "🔄 Repo already exists"
+    if [ "$DRY_RUN" = true ]; then
+      echo "  [DRY RUN] Would: cd ~/nix-setup-ansible && git pull"
+    else
+      cd ~/nix-setup-ansible && git pull
+    fi
   else
-    cd ~/nix-setup-ansible && git pull
+    maybe_exec "git clone \"$REPO_URL\" ~/nix-setup-ansible"
+    if [ "$DRY_RUN" = false ]; then cd ~/nix-setup-ansible; fi
   fi
 else
-  maybe_exec "git clone \"$REPO_URL\" ~/nix-setup-ansible"
-  if [ "$DRY_RUN" = false ]; then cd ~/nix-setup-ansible; fi
+  log "⏭️ Skipping repository clone/update per --skip-repo"
 fi
 
-# Prompt for playbook (skip real prompt in dry run)
-if [ "$DRY_RUN" = true ]; then
-  echo "🤔 [DRY RUN] Would prompt to run the Ansible playbook now (default Yes)"
-  echo "  [DRY RUN] Would execute: ansible-playbook -i inventory playbook.yml --ask-become-pass"
-else
-  read -p "🤔 Run the Ansible playbook now? (Y/n) " -n 1 -r
-  echo
-  if [[ ! $REPLY =~ ^[Yy]$ ]] && [[ -n $REPLY ]]; then
-    log "❌ Exiting without running the playbook. You can run it manually later."
-    exit 0
+# Prompt / run playbook (only if repo not skipped)
+if [ "$SKIP_REPO" = false ]; then
+  if [ "$DRY_RUN" = true ]; then
+    echo "🤔 [DRY RUN] Would prompt to run the Ansible playbook now (default Yes)"
+    echo "  [DRY RUN] Would execute: ansible-playbook -i inventory playbook.yml --ask-become-pass"
+  else
+    read -p "🤔 Run the Ansible playbook now? (Y/n) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]] && [[ -n $REPLY ]]; then
+      log "❌ Exiting without running the playbook. You can run it manually later."
+      exit 0
+    fi
+    log "▶️ Running Ansible playbook..."
+    ansible-playbook -i inventory playbook.yml --ask-become-pass
   fi
-  log "▶️ Running Ansible playbook..."
-  ansible-playbook -i inventory playbook.yml --ask-become-pass
+else
+  log "⏭️ Skipping playbook execution per --skip-repo"
 fi
 
 # Mark bootstrap as completed
@@ -272,6 +292,8 @@ else
     label="${item%%:*}"; val="${item##*:}";
     if [ "$val" = yes ]; then
       echo "✅ $label"
+    elif [ "$val" = skipped ]; then
+      echo "⏭️ $label (skipped)"
     else
       echo "⚠️ $label (missing)"
     fi
@@ -279,6 +301,9 @@ else
   echo "======================================================"
   echo ""
   echo "🔍 DRY RUN COMPLETE - No changes were made"
-  echo "💡 To run for real: $0 $REPO_URL"
+  if [ "$SKIP_REPO" = true ]; then
+    echo "💡 Repo/playbook skipped: re-run without --skip-repo and add a URL to include them"
+  fi
+  echo "💡 To run for real: $0 ${SKIP_REPO:+--skip-repo }${DRY_RUN:+} ${REPO_URL}"
   echo "💡 Output will be logged to: $LOGFILE"
 fi
