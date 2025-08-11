@@ -7,7 +7,7 @@
   become: true
 
   vars:
-    log_dir: "/Volumes/F9/logs"
+    log_dir: "{{ '~' | expanduser }}/nix-bootstrap-logs"
     log_file: "{{ log_dir }}/nix-bootstrap-{{ ansible_date_time.iso8601_basic_short }}.log"
     error_log_file: "{{ log_dir }}/nix-bootstrap-errors-{{ ansible_date_time.iso8601_basic_short }}.log"
 
@@ -32,7 +32,7 @@
 
   tasks:
     - name: 🧾 Write buffered logs (main)
-      when: log_buffer is defined
+      when: log_buffer is defined and not ansible_check_mode
       copy:
         dest: "{{ log_file }}"
         content: "{{ log_buffer }}\n"
@@ -41,7 +41,7 @@
       tags: [logging]
 
     - name: 🧾 Write buffered error logs
-      when: error_log_buffer is defined
+      when: error_log_buffer is defined and not ansible_check_mode
       copy:
         dest: "{{ error_log_file }}"
         content: "{{ error_log_buffer }}\n"

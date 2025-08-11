@@ -1,14 +1,125 @@
 ---
 # mac_shell role: macOS-specific apps and shell config (dry-run aware)
 
+- name: Detect macOS
+  assert:
+    that: ansible_facts['system'] == 'Darwin'
+    fail_msg: "mac_shell role invoked on non-macOS host"
+  changed_when: false
+
+- name: Check for Homebrew
+  command: command -v brew
+  register: brew_check
+  ignore_errors: true
+  changed_when: false
+
+- name: (DRY-RUN) Would install Homebrew
+  when: ansible_check_mode and brew_check.rc != 0
+  debug:
+    msg: "Would install Homebrew via official script"
+
+- name: Install Homebrew
+  when: not ansible_check_mode and brew_check.rc != 0
+  shell: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  args:
+    executable: /bin/bash
+
+- name: Determine Homebrew prefix
+  when: brew_check.rc == 0 or (brew_check.rc != 0 and not ansible_check_mode)
+  shell: |
+    if [ -d /opt/homebrew ]; then echo /opt/homebrew; else echo /usr/local; fi
+  register: brew_prefix
+  changed_when: false
+
+- name: (DRY-RUN) Would ensure brew shellenv line in ~/.zprofile
+  when: ansible_check_mode and brew_prefix is defined
+  debug:
+    msg: "Would add Homebrew shellenv line to ~/.zprofile"
+
+- name: Ensure brew shellenv line in ~/.zprofile
+  lineinfile:
+    path: "{{ ansible_env.HOME }}/.zprofile"
+    regexp: 'brew shellenv'
+    line: 'eval "$( {{ brew_prefix.stdout }}/bin/brew shellenv )"'
+    insertafter: EOF
+    create: yes
+  when: not ansible_check_mode and brew_prefix is defined
+
+- name: Homebrew update (skipped in dry-run)
+  when: not ansible_check_mode and brew_check.rc == 0
+  command: brew update
+  changed_when: false
+
+- name: (DRY-RUN) Would ensure Ghostty installed
+  when: ansible_check_mode and brew_check.rc == 0
+  debug:
+    msg: "Would ensure Ghostty (cask) is installed"
+
+- name: Ensure Ghostty installed
+  when: not ansible_check_mode and brew_check.rc == 0
+  community.general.homebrew:
+    name: ghostty
+    state: present
+    install_options: cask
+
+- name: (DRY-RUN) Would ensure Lazygit installed
+  when: ansible_check_mode and brew_check.rc == 0
+  debug:
+    msg: "Would ensure Lazygit is installed"
+
+- name: Ensure Lazygit installed
+  when: not ansible_check_mode and brew_check.rc == 0
+  community.general.homebrew:
+    name: lazygit
+    state: present
+
+- name: (DRY-RUN) Would ensure PowerShell installed
+  when: ansible_check_mode and brew_check.rc == 0
+  debug:
+    msg: "Would ensure PowerShell (cask) is installed"
+
+- name: Ensure PowerShell installed
+  when: not ansible_check_mode and brew_check.rc == 0
+  community.general.homebrew:
+    name: powershell
+    state: present
+    install_options: cask
+
+- name: (DRY-RUN) Would ensure Ansible installed (brew)
+  when: ansible_check_mode and brew_check.rc == 0
+  debug:
+    msg: "Would ensure Ansible is installed via Homebrew"
+
+- name: Ensure Ansible installed
+  when: not ansible_check_mode and brew_check.rc == 0
+  community.general.homebrew:
+    name: ansible
+    state: present
+
+- name: Check community.general collection
+  when: not ansible_check_mode
+  command: ansible-galaxy collection list
+  register: galaxy_list
+  changed_when: false
+  failed_when: false
+
+- name: (DRY-RUN) Would install community.general
+  when: ansible_check_mode
+  debug:
+    msg: "Would ensure Ansible collection community.general is installed"
+
+- name: Install community.general collection
+  when: not ansible_check_mode and (galaxy_list.stdout is not defined or (galaxy_list.stdout is defined and (galaxy_list.stdout is search('community.general') | default(false)) == false))
+  command: ansible-galaxy collection install community.general
+
+- name: (DRY-RUN) Would ensure Raycast installed
+  when: ansible_check_mode and brew_check.rc == 0
+  debug:
+    msg: "Would ensure Raycast (cask) is installed"
+
 - name: Ensure Raycast present (macOS)
-  when: ansible_facts['system'] == 'Darwin' and not ansible_check_mode
+  when: not ansible_check_mode and brew_check.rc == 0
   community.general.homebrew:
     name: raycast
     state: present
     install_options: cask
-
-- name: (DRY-RUN) Would ensure Raycast present
-  when: ansible_facts['system'] == 'Darwin' and ansible_check_mode
-  debug:
-    msg: "Would install/ensure Raycast via brew cask"
